@@ -39,11 +39,13 @@ CKPT_EVERY=2500
 VAL_EVERY=1000
 D_MODEL=320; N_HEADS=5; N_LAYERS=30       # ESM-C: head_dim 64, depth 30
 DEPTHS="0 3 7 10 14 17 21 25 29"          # 9 matched relative depths over 30 blocks
+BOOT_DEPTHS="all"                         # depth labels for the bootstrap (see preset)
 # -------------------------------------------------------------------
 
 if [ "$SMOKE" = "1" ]; then
   DATA="$HOME/own_sae_data/uniref50_smoke"; OUT="outputs_ctrl_smoke"
   SEEDS="42"; PROTOCOLS="token"; DEPTHS="0 29"
+  BOOT_DEPTHS="0,100"                     # only the depths the smoke actually built
   SMOKE_TRAIN="--smoke"; SMOKE_EVAL="--max-proteins 40 --sae-epochs 2"
   echo "### SMOKE MODE: tiny corpus, 2 depths, 40 proteins — proves the chain, not the science"
 else
@@ -105,9 +107,46 @@ analyse_one () {
     $PY -u cpu_stage.py --layer-dir "$LD" --model-type residue \
         --features-csv cache/residue_features.csv --pdb-dir cache/pdb_files \
         --fasta-path cache/scope_40.fa || { echo "!! cpu_stage failed $T L$L"; continue; }
-    # Z.npy is ~1.5 GB/layer and is not needed once L_struct exists.
-    [ "${KEEP_Z:-0}" = "1" ] || rm -f "$LD/Z.npy"
+    # NOTE: Z.npy is NOT deleted here. compute_h1_bootstrap.py (the confidence
+    # intervals) mmaps Z via cpu_stage.load_layer, so it must survive until the
+    # bootstrap for this pair has run. prune_z() below handles cleanup.
   done
+}
+
+# ---- 4. cross-model bootstrap (the CIs). MUST run before Z is pruned. ----
+bootstrap_pair () {
+  local SEED="$1" PROTO="$2"
+  local A B STEM
+  A=$(tag mlm "$SEED" "$PROTO"); B=$(tag clm "$SEED" "$PROTO")
+  STEM="bootstrap_h1_ctrl_esmc_s${SEED}_${PROTO}"
+  if [ -f "outputs_robustness/${STEM}_full_bylevel_minact0.csv" ]; then
+    echo "[bootstrap s$SEED $PROTO] done - skip"; return 0
+  fi
+  echo "=== [bootstrap s$SEED $PROTO] $A vs $B $(date) ==="
+  $PY -u outputs_robustness/compute_h1_bootstrap.py --preset ctrl_esmc \
+      --model-a "$A" --model-b "$B" --out-stem "$STEM" --output-root "$OUT" \
+      --cluster-levels fold,protein --min-active 0 --depths "$BOOT_DEPTHS" \
+      --n-boot "${N_BOOT:-1000}" || echo "!! bootstrap failed s$SEED $PROTO"
+}
+
+# ---- 5. prune the big intermediates — ONLY if the bootstrap really consumed them ----
+# compute_h1_bootstrap.py mmaps Z. Deleting Z when the bootstrap has NOT run would
+# silently destroy the only input to the confidence intervals and force a full retrain,
+# so this refuses to prune unless every expected CSV exists.
+prune_z () {
+  [ "${KEEP_Z:-0}" = "1" ] && { echo "KEEP_Z=1 — keeping Z.npy"; return 0; }
+  local missing=0
+  for s in $SEEDS; do for proto in $PROTOCOLS; do
+    [ -f "outputs_robustness/bootstrap_h1_ctrl_esmc_s${s}_${proto}_full_bylevel_minact0.csv" ] || missing=1
+  done; done
+  if [ "$missing" = "1" ]; then
+    echo "REFUSING to prune Z.npy: a bootstrap CSV is missing — Z is its only input."
+    echo "  Fix the bootstrap and re-run; nothing is deleted. (KEEP_Z=1 to silence.)"
+    return 0
+  fi
+  local n; n=$(find "$OUT" -name Z.npy | wc -l | tr -d ' ')
+  find "$OUT" -name Z.npy -delete
+  echo "pruned $n Z.npy (~$((n*3/2)) GB) — L_struct + bootstrap already computed"
 }
 
 echo "########## controlled MLM-vs-CLM | seeds:$SEEDS | protocols:$PROTOCOLS | $(date) ##########"
@@ -117,11 +156,16 @@ for s in $SEEDS; do
     train_one mlm "$s" "$proto" || echo "!! mlm s$s $proto did not finish"
     analyse_one clm "$s" "$proto"
     analyse_one mlm "$s" "$proto"
+    bootstrap_pair "$s" "$proto"          # needs Z -> must precede prune_z
   done
 done
+prune_z
 
 echo; echo "########## DONE $(date) ##########"
-echo "Send back these (small) files:"
-find "$OUT" -name struct_seq_metrics.csv | sort | sed 's/^/  /'
+echo "Results to send back:"
+find "$OUT" -name struct_seq_metrics.csv 2>/dev/null | sort | sed 's/^/  /'
+find outputs_robustness -name 'bootstrap_h1_ctrl_esmc_*.csv' 2>/dev/null | sort | sed 's/^/  /'
 echo
-echo "  tar czf ctrl_results.tgz \$(find $OUT -name 'struct_seq_metrics.csv' -o -name 'META.json') train.log"
+echo "  tar czf ctrl_results.tgz \\"
+echo "    \$(find $OUT -name 'struct_seq_metrics.csv' -o -name 'META.json') \\"
+echo "    outputs_robustness/bootstrap_h1_ctrl_esmc_*.csv train.log"

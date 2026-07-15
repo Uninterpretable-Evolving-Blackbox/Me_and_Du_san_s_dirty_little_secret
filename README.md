@@ -17,7 +17,8 @@ training, feature extraction, and the analysis. Only ~2 MB of CSVs come back.
 ## What you need
 
 - **NVIDIA GPU** (built for your RTX PRO 6000)
-- **~60 GB free disk** (1 GB corpus + 1.1 GB structures + checkpoints; big intermediates are auto-deleted)
+- **~100 GB free disk** (1 GB corpus + 1.1 GB structures + checkpoints + ~40 GB of
+  intermediates that are auto-deleted at the end, once they've been consumed)
 - **Python 3.10+**, internet for setup
 - **No bioinformatics tooling.** No DSSP, no BLAST. Precomputed features ship in `cache/`.
 
@@ -87,11 +88,16 @@ from the last checkpoint and skips anything already finished.
 At the end it prints a checklist. We need the small files only:
 
 ```bash
-tar czf ctrl_results.tgz $(find outputs_ctrl -name 'struct_seq_metrics.csv' -o -name 'META.json') train.log
+tar czf ctrl_results.tgz \
+  $(find outputs_ctrl -name 'struct_seq_metrics.csv' -o -name 'META.json') \
+  outputs_robustness/bootstrap_h1_ctrl_esmc_*.csv train.log
 ```
 
 That's roughly **2 MB**. Please include `train.log` — the loss curves tell us whether the
 two models trained comparably, which the result depends on.
+
+> If the run ends with **"REFUSING to prune Z.npy"**, the bootstrap didn't finish. Nothing
+> was deleted — send Wei the log and *don't* clear the directories; the run can resume.
 
 Then delete `~/own_sae_data/` and `outputs_ctrl/` — nothing else is needed.
 

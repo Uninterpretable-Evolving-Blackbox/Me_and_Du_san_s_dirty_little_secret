@@ -3,6 +3,8 @@ __pycache__/
 .venv/
 *.log
 outputs_ctrl*/
+outputs_robustness/*.csv
+outputs_robustness/*.npz
 cache/pdb_files/
 # training artefacts live in ~/own_sae_data, never in the repo
 *.npy
