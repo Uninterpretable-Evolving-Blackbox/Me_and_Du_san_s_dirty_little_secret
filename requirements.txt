@@ -1,0 +1,5 @@
+# NOTE: install torch FIRST and SEPARATELY (it needs the CUDA-matched wheel).
+# See README.md -> "1. Install torch". Then:  pip install -r requirements.txt
+numpy>=1.24
+datasets>=2.14
+huggingface_hub>=0.20
