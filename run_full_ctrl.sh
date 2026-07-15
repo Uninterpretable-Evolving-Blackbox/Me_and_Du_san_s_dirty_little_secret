@@ -38,8 +38,11 @@ WARMUP=500
 CKPT_EVERY=2500
 VAL_EVERY=1000
 D_MODEL=320; N_HEADS=5; N_LAYERS=30       # ESM-C: head_dim 64, depth 30
-DEPTHS="0 3 7 10 14 17 21 25 29"          # 9 matched relative depths over 30 blocks
+# The paper's nine matched relative depths {0,13,25,38,50,63,75,88,100}%, mapped onto
+# 30 blocks (index/29, same convention as the paper's ESM-2 L0..L32 => index/32).
+DEPTHS="0 4 7 11 14 18 22 26 29"
 BOOT_DEPTHS="all"                         # depth labels for the bootstrap (see preset)
+N_SHUFFLES=5                              # paper: "5 within-protein permutations"
 # -------------------------------------------------------------------
 
 if [ "$SMOKE" = "1" ]; then
@@ -105,7 +108,11 @@ analyse_one () {
     echo "=== [analyse $T] layer $L $(date) ==="
     $PY -u eval_ctrl_plm.py --ckpt "$CK" --name "$T" --layer "$L" \
         --out-root "$OUT" --eval-set eval_set $SMOKE_EVAL || { echo "!! eval failed $T L$L"; continue; }
+    # --n-shuffles 5 is REQUIRED: cpu_stage defaults to 3, but the paper (and
+    # run_all.sh:121, and compute_h1_bootstrap's N_SHUF) use 5. L_struct is
+    # shuffle-corrected, so 3 would compute a different metric than the paper's.
     $PY -u cpu_stage.py --layer-dir "$LD" --model-type residue \
+        --n-shuffles "$N_SHUFFLES" \
         --features-csv cache/residue_features.csv --pdb-dir cache/pdb_files \
         --fasta-path cache/scope_40.fa || { echo "!! cpu_stage failed $T L$L"; continue; }
     # Concept-F1: the second, independent lens (InterPLM-style feature<->concept

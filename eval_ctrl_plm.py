@@ -85,8 +85,10 @@ def main():
     ap.add_argument("--device", default="auto")
     ap.add_argument("--sae-device", default="auto")
     ap.add_argument("--sae-epochs", type=int, default=60)
-    ap.add_argument("--expansion", type=int, default=8)
-    ap.add_argument("--k-sparse", type=int, default=256)
+    ap.add_argument("--expansion", type=int, default=8)     # paper: 8x
+    ap.add_argument("--k-sparse", type=int, default=256)    # paper: k=256
+    ap.add_argument("--sae-seed", type=int, default=42,
+                    help="SAE init seed; paper's main grid is 42 (43/44 = robustness)")
     args = ap.parse_args()
 
     dev, sdev = pick_device(args.device), pick_device(args.sae_device)
@@ -119,6 +121,12 @@ def main():
 
     norm_scale = compute_norm_scale(X[tr_rows])
     print(f"norm_scale {norm_scale:.6f}")
+    # Seed per (model, layer, sae_seed) immediately before training, exactly as
+    # run_unsupervised.py:447 does, so the SAE init is deterministic instead of
+    # drifting with whatever RNG state preceded it. Paper default: 42.
+    torch.manual_seed(args.sae_seed)
+    np.random.seed(args.sae_seed)
+    print(f"SAE seed {args.sae_seed} (expansion={args.expansion}, k={args.k_sparse}, k_aux=64)")
     sae = train_sae((X[tr_rows] * norm_scale).astype(np.float32), input_dim=D,
                     device=sdev, epochs=args.sae_epochs,
                     expansion=args.expansion, k_sparse=args.k_sparse, k_aux=64)
@@ -140,6 +148,7 @@ def main():
         "norm_scale": norm_scale, "val_uids": sorted(val_uids & set(uids)),
         "ckpt": args.ckpt, "ckpt_tokens": int(ck.get("tokens", 0)),
         "causal": cfg["causal"], "anchor": "ESM-C (esm==3.2.3 TransformerStack)",
+        "sae_seed": args.sae_seed,
     }, indent=2))
     print(f"Z {Z.shape} sparsity {(Z==0).mean()*100:.1f}%  ->  {out}")
 

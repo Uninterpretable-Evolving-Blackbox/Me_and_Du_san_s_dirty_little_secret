@@ -95,9 +95,11 @@ MATCHED_PAIRS_CTRL = [
 # Model dir names carry seed+protocol (e.g. ckpt_mlm_s42_token vs ckpt_clm_s42), so the
 # runner overrides model_a/model_b/out_stem on the CLI (see --model-a below).
 # (label, layer_a, layer_b). Both arms are 30 layers, so depths are self-matched.
+# Labels are the PAPER's nine relative depths {0,13,25,38,50,63,75,88,100}%, mapped
+# onto blocks 0..29 via index/29 (the paper's ESM-2 grid is index/32: L0..L32).
 MATCHED_PAIRS_CTRL_ESMC = [
-    ("0", 0, 0), ("10", 3, 3), ("24", 7, 7), ("34", 10, 10), ("48", 14, 14),
-    ("59", 17, 17), ("72", 21, 21), ("86", 25, 25), ("100", 29, 29),
+    ("0", 0, 0), ("13", 4, 4), ("25", 7, 7), ("38", 11, 11), ("50", 14, 14),
+    ("63", 18, 18), ("75", 22, 22), ("88", 26, 26), ("100", 29, 29),
 ]
 
 PAIR_PRESETS = {
