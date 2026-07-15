@@ -19,7 +19,7 @@ from pathlib import Path
 import numpy as np
 import torch
 import torch.nn.functional as F
-from model_ctrl_plm import PLM, PLMConfig
+from model_ctrl_esmc import CtrlESMC, ESMC_DEPTH
 
 
 def load_corpus(d):
@@ -111,6 +111,10 @@ def main():
     ap.add_argument("--mask-rate", type=float, default=0.15)
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--data-order-seed", type=int, default=1234)  # SAME for both objectives
+    # ESM-C anchor: head_dim must stay 64 and depth 30 (see model_ctrl_esmc.py docstring).
+    ap.add_argument("--d-model", type=int, default=320)
+    ap.add_argument("--n-heads", type=int, default=5)
+    ap.add_argument("--n-layers", type=int, default=ESMC_DEPTH)
     ap.add_argument("--match-predictions", action="store_true")
     ap.add_argument("--log-every", type=int, default=50)
     ap.add_argument("--val-every", type=int, default=1000)
@@ -153,9 +157,9 @@ def main():
 
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
-    cfg = PLMConfig(vocab_size=meta["vocab_size"], causal=(args.objective == "clm"),
-                    max_seq=args.seq_len)
-    model = PLM(cfg).to(dev)
+    cfg = dict(vocab_size=meta["vocab_size"], d_model=args.d_model, n_heads=args.n_heads,
+               n_layers=args.n_layers, causal=(args.objective == "clm"))
+    model = CtrlESMC(**cfg).to(dev)
     gpu = f" | {torch.cuda.get_device_name(0)}" if dev == "cuda" else ""
     print(f"{args.objective.upper()} | {model.num_params()/1e6:.1f}M params | dev {dev}{gpu} | "
           f"seed {args.seed} | steps {steps} | ~{steps*toks_per_step/1e6:.0f}M tok")
@@ -177,8 +181,9 @@ def main():
         return 0.1 * args.lr + 0.5 * (0.9 * args.lr) * (1 + math.cos(math.pi * min(1.0, p)))
 
     mask_id = meta["mask"]
-    specials = {meta["pad"], meta["bos"], meta["eos"], meta["mask"], meta["unk"]}
-    aa_lo, aa_hi = 5, meta["vocab_size"] - 1
+    specials = {meta["pad"], meta["bos"], meta["eos"], meta["mask"]}
+    # ESM-C residue ids are contiguous (4..23); random-replacement samples from that range.
+    aa_lo, aa_hi = meta["aa_lo"], meta["aa_hi"]
 
     def batch_loss(bidx, data):
         seqs = [data.get(i) for i in bidx]
@@ -199,7 +204,7 @@ def main():
 
     def save_ckpt(step, tag):
         torch.save({"model": model.state_dict(), "opt": opt.state_dict(),
-                    "cfg": cfg.__dict__, "meta": meta, "objective": args.objective,
+                    "cfg": cfg, "meta": meta, "objective": args.objective,
                     "step": step, "tokens": int((step + 1) * toks_per_step)},
                    out / f"model_{tag}.pt")
 

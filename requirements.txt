@@ -1,5 +1,20 @@
-# NOTE: install torch FIRST and SEPARATELY (it needs the CUDA-matched wheel).
-# See README.md -> "1. Install torch". Then:  pip install -r requirements.txt
+# Install torch FIRST and SEPARATELY (needs the CUDA-matched wheel).
+# See README -> "1. Install torch".  Then:  pip install -r requirements.txt
+
+# --- the architecture anchor. PINNED ON PURPOSE. ---
+# model_ctrl_esmc.py patches ONE method of esm's MultiHeadAttention (copied verbatim
+# from 3.2.3 + a causal AND). An unpinned upgrade could silently diverge from that copy.
+esm==3.2.3
+
 numpy>=1.24
-datasets>=2.14
+pandas>=2.0
+scipy>=1.10
+scikit-learn>=1.3
+joblib>=1.3
+tqdm>=4.65
+biopython>=1.81          # PDB parsing for Ca coords (NOT DSSP - no binary needed)
+umap-learn>=0.5
+matplotlib>=3.7
+seaborn>=0.12
+datasets>=2.14           # corpus streaming (step 2 only)
 huggingface_hub>=0.20

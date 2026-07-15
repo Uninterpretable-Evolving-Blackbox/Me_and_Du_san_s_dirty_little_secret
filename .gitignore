@@ -2,6 +2,8 @@ __pycache__/
 *.pyc
 .venv/
 *.log
+outputs_ctrl*/
+cache/pdb_files/
 # training artefacts live in ~/own_sae_data, never in the repo
 *.npy
 *.pt
