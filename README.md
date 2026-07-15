@@ -52,8 +52,18 @@ python fetch_pdbs.py                  # ~1.1 GB of protein structures (resumable
 python prep_controlled_corpus.py      # ~30-60 min, builds the ~1 GB training corpus
 ```
 
-`prep` should end with `kept=3000000 seqs | ~1056.7M tokens`. **If your numbers differ,
-tell Wei before continuing** — it means the corpus doesn't match ours.
+`prep` should end with roughly `kept=3000000 seqs | ~1056.7M tokens`.
+
+**A small difference in the token count is expected and fine.** HuggingFace's streaming
+shuffle isn't bit-reproducible across `datasets` versions and dataset revisions, so you'll
+draw a slightly different 3M sequences (±a few 0.1M tokens is <0.05% of the corpus). It
+doesn't matter: both models train on **your** `tokens.npy`, and that shared corpus is what
+the experiment controls for. Your run doesn't need to match anyone else's.
+
+Only flag it if one of these is true:
+- **`kept` is not 3000000**, or
+- the last line shows **`scope-holdout=0`** — that would mean the evaluation proteins
+  leaked into training, which *does* invalidate the run. (Ours drops 29.)
 
 ## 3. Smoke test (~10 min — please do this first)
 
