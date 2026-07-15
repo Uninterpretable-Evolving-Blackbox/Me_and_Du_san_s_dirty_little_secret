@@ -140,6 +140,8 @@ Later, if asked: `SEEDS="43 44" bash run_full_ctrl.sh` adds replicates with no n
 | `train_ctrl_plm.py` | trains one model |
 | `eval_ctrl_plm.py` | extracts features + trains the sparse autoencoder |
 | `cpu_stage.py` | computes the structural-locality metric (CPU, multi-core) |
+| `experiment_concept_f1.py` | second, independent lens: feature<->concept alignment |
+| `outputs_robustness/compute_h1_bootstrap.py` | the confidence intervals |
 | `prep_controlled_corpus.py` / `fetch_pdbs.py` | data setup |
 | `cache/`, `eval_set/` | precomputed features + the exact 1,500 eval proteins |
 

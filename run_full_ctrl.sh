@@ -47,9 +47,10 @@ if [ "$SMOKE" = "1" ]; then
   SEEDS="42"; PROTOCOLS="token"; DEPTHS="0 29"
   BOOT_DEPTHS="0,100"                     # only the depths the smoke actually built
   SMOKE_TRAIN="--smoke"; SMOKE_EVAL="--max-proteins 40 --sae-epochs 2"
+  SMOKE_CF1="--quick --max-features 256 --min-domains 2"
   echo "### SMOKE MODE: tiny corpus, 2 depths, 40 proteins — proves the chain, not the science"
 else
-  SMOKE_TRAIN=""; SMOKE_EVAL=""
+  SMOKE_TRAIN=""; SMOKE_EVAL=""; SMOKE_CF1=""
 fi
 
 [ -f "$DATA/tokens.npy" ] || { echo "ERROR: no corpus at $DATA. Run: $PY prep_controlled_corpus.py"; exit 1; }
@@ -107,9 +108,18 @@ analyse_one () {
     $PY -u cpu_stage.py --layer-dir "$LD" --model-type residue \
         --features-csv cache/residue_features.csv --pdb-dir cache/pdb_files \
         --fasta-path cache/scope_40.fa || { echo "!! cpu_stage failed $T L$L"; continue; }
-    # NOTE: Z.npy is NOT deleted here. compute_h1_bootstrap.py (the confidence
-    # intervals) mmaps Z via cpu_stage.load_layer, so it must survive until the
-    # bootstrap for this pair has run. prune_z() below handles cleanup.
+    # Concept-F1: the second, independent lens (InterPLM-style feature<->concept
+    # alignment). It disagreed with L_struct on the previous pilot, so it is worth
+    # having in the redo rather than resting the claim on one metric. Also reads Z.
+    local CF="results_concept_f1/$T/layer_$L"
+    if [ ! -f "$CF/concept_f1.csv" ]; then
+      $PY -u experiment_concept_f1.py --layer-dir "$LD" --save-dir "$CF" \
+          --features-csv cache/residue_features.csv --fasta-path cache/scope_40.fa \
+          --split-level protein $SMOKE_CF1 || echo "!! concept_f1 failed $T L$L"
+    fi
+    # NOTE: Z.npy is NOT deleted here. Both compute_h1_bootstrap.py (the confidence
+    # intervals) and experiment_concept_f1.py mmap Z via cpu_stage.load_layer, so it
+    # must survive until those have run. prune_z() below handles cleanup.
   done
 }
 
@@ -164,8 +174,9 @@ prune_z
 echo; echo "########## DONE $(date) ##########"
 echo "Results to send back:"
 find "$OUT" -name struct_seq_metrics.csv 2>/dev/null | sort | sed 's/^/  /'
+find results_concept_f1 -name 'concept_f1.csv' 2>/dev/null | sort | sed 's/^/  /'
 find outputs_robustness -name 'bootstrap_h1_ctrl_esmc_*.csv' 2>/dev/null | sort | sed 's/^/  /'
 echo
 echo "  tar czf ctrl_results.tgz \\"
 echo "    \$(find $OUT -name 'struct_seq_metrics.csv' -o -name 'META.json') \\"
-echo "    outputs_robustness/bootstrap_h1_ctrl_esmc_*.csv train.log"
+echo "    results_concept_f1 outputs_robustness/bootstrap_h1_ctrl_esmc_*.csv train.log"
