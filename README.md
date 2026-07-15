@@ -9,8 +9,10 @@ then you leave it alone.
 ends up. So we train pairs of models identical in every respect — same architecture,
 same data, same batch order, same compute — except one is masked (BERT-style,
 bidirectional) and the other causal (GPT-style, left-to-right). Then we measure, layer
-by layer, how spatially clustered the learned features are. Everything runs here:
-training, feature extraction, and the analysis. Only ~2 MB of CSVs come back.
+by layer, how spatially clustered the learned features are — plus a second independent
+check (how well features align with known protein concepts) and bootstrap confidence
+intervals. Everything runs here: training, feature extraction, and all the analysis.
+Only ~2 MB of CSVs come back.
 
 ---
 
@@ -90,8 +92,10 @@ At the end it prints a checklist. We need the small files only:
 ```bash
 tar czf ctrl_results.tgz \
   $(find outputs_ctrl -name 'struct_seq_metrics.csv' -o -name 'META.json') \
-  outputs_robustness/bootstrap_h1_ctrl_esmc_*.csv train.log
+  results_concept_f1 outputs_robustness/bootstrap_h1_ctrl_esmc_*.csv train.log
 ```
+
+(The script prints this exact command at the end — copy it from there if in doubt.)
 
 That's roughly **2 MB**. Please include `train.log` — the loss curves tell us whether the
 two models trained comparably, which the result depends on.
