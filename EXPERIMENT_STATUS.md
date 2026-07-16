@@ -140,15 +140,15 @@ CLM | 42.0M params | steps 40283 | ~660M tok
 Token-matched CLM completed with final train loss `2.7408`, token-matched MLM
 with `2.5428`, and prediction-matched MLM with `2.4660`. The pipeline completed
 all nine configured depths for each of the three model directories (27 analyses
-total), concept-F1, and both token- and prediction-protocol H1 bootstraps. After
-the required bootstrap CSVs existed, the guard allowed 27 consumed `Z.npy`
-intermediates (about 40 GB) to be pruned. It printed:
+total), concept-F1, and the prediction-protocol H1 bootstrap. It printed:
 
 ```text
 ########## DONE Thu Jul 16 18:51:14 CST 2026 ##########
 ```
 
 No traceback, CUDA warning, failed-stage marker, or pruning refusal was present.
+However, a post-run audit found that the token-protocol bootstrap CSVs had only
+4 rows covering 2 depths, instead of 18 rows covering all 9 depths.
 
 `run_full_ctrl.sh` automatically chained these stages:
 
@@ -164,6 +164,37 @@ No traceback, CUDA warning, failed-stage marker, or pruning refusal was present.
 Seeds 43 and 44 are intentionally **not** included in this stage; the README
 labels them as later replicates to run only if requested.
 
+## Token-bootstrap repair
+
+The smoke run and the full seed-42 token run originally used the same bootstrap
+output stem. Smoke therefore created a valid two-depth (`0%`, `100%`) CSV at the
+full-run path. The full run's existence-only completion check then skipped the
+nine-depth token bootstrap, and the pruning guard likewise checked existence
+rather than depth coverage.
+
+The runner now gives smoke bootstraps a separate
+`bootstrap_h1_ctrl_esmc_smoke_*` namespace. A regression test runs smoke and
+full stub pipelines consecutively and verifies that both token bootstraps run
+with distinct stems.
+
+Recovery was performed on Ronnie without retraining either language model or
+changing any experimental parameter. The exact repository evaluation command
+deterministically regenerated `Z.npy` for all 9 CLM and 9 token-MLM depths; a
+one-layer probe reproduced the existing `D.npy`, `sae_model.pt`, and `META.json`
+hashes. The full token bootstrap was then rerun with 1,000 resamples. Independent
+validation confirmed:
+
+- full and validation CSVs: 18 rows each, 9 depths, `fold` and `protein` levels
+- bootstrap traces: 36 arrays, each containing 1,000 samples
+- regenerated activations: 18/18 valid before bootstrap and 0 remaining after
+  validated, guarded pruning
+
+The repair pipeline completed at:
+
+```text
+########## REPAIR_DONE Thu Jul 16 20:17:11 CST 2026 ##########
+```
+
 ## Result package
 
 The README packaging command produced `ctrl_results.tgz`, containing:
@@ -173,11 +204,12 @@ The README packaging command produced `ctrl_results.tgz`, containing:
 - 27 `concept_f1.csv` files
 - 4 bootstrap CSV files (full/validation for token/prediction protocols)
 - `train.log`
+- `repair_token_bootstrap.log`
 
 The gzip stream and archive listing were verified on Ronnie. The package was
 then copied to the Mac and its hash was verified again:
 
 ```text
-size:    7,194,729 bytes
-SHA-256: 1702d3270c992d859e328c0b763192b8f3a946dd704c6a440ea572e2a6ed94b6
+size:    7,203,130 bytes
+SHA-256: b5995dd062313b759b438d657c97a9ad933bf7a3b2eb8ec0447fb071db998730
 ```
