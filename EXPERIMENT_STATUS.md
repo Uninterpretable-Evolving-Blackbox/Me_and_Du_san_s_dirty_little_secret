@@ -6,9 +6,9 @@ Last updated: 2026-07-16 (Ronnie/CST)
 
 - Repository revision: `c0dff9f` (`main` at setup time)
 - Smoke test: **passed end-to-end** and printed `DONE`
-- Full seed-42 experiment: **running** on Ronnie
-- Token-matched CLM and MLM training: **complete**
-- Current stage at last check: automatic layerwise analysis of the trained models
+- Full seed-42 experiment: **complete** and printed `DONE`
+- CLM, token-matched MLM, and prediction-matched MLM training: **complete**
+- All 27 layerwise analyses, both protocol bootstraps, and guarded pruning: **complete**
 - Observed training throughput: about `233k tokens/s`
 - No experiment hyperparameters were changed.
 
@@ -137,15 +137,20 @@ seeds:42 | protocols:token pred
 CLM | 42.0M params | steps 40283 | ~660M tok
 ```
 
-The driver PID recorded on Ronnie is `90269`. At the latest check it remained
-alive. Token-matched CLM completed with reported final train loss `2.7408`, and
-token-matched MLM completed with reported final train loss `2.5428`; both final
-checkpoints were saved. The pipeline then advanced automatically into layerwise
-analysis and was processing `ckpt_clm_s42` layer 4. GPU utilization may be zero
-during CPU-heavy analysis stages. No traceback, CUDA warning, failed-stage
-marker, or pruning refusal was present, and about 1.2 TB of disk remained free.
+Token-matched CLM completed with final train loss `2.7408`, token-matched MLM
+with `2.5428`, and prediction-matched MLM with `2.4660`. The pipeline completed
+all nine configured depths for each of the three model directories (27 analyses
+total), concept-F1, and both token- and prediction-protocol H1 bootstraps. After
+the required bootstrap CSVs existed, the guard allowed 27 consumed `Z.npy`
+intermediates (about 40 GB) to be pruned. It printed:
 
-`run_full_ctrl.sh` automatically chains the remaining stages:
+```text
+########## DONE Thu Jul 16 18:51:14 CST 2026 ##########
+```
+
+No traceback, CUDA warning, failed-stage marker, or pruning refusal was present.
+
+`run_full_ctrl.sh` automatically chained these stages:
 
 1. token-matched CLM (shared arm)
 2. token-matched MLM
@@ -159,11 +164,20 @@ marker, or pruning refusal was present, and about 1.2 TB of disk remained free.
 Seeds 43 and 44 are intentionally **not** included in this stage; the README
 labels them as later replicates to run only if requested.
 
-## Monitoring and stop conditions
+## Result package
 
-The run is monitored for process liveness, GPU utilization, disk space, ETA,
-validation/checkpoint progress, tracebacks, CUDA failures, failed stages, and
-`REFUSING to prune Z.npy`. Any condition that could affect scientific validity
-will stop automatic progression and be reported rather than silently worked
-around. When the full run completes, the small result CSV/JSON files and
-`train.log` will be packaged as `ctrl_results.tgz` using the README command.
+The README packaging command produced `ctrl_results.tgz`, containing:
+
+- 27 `struct_seq_metrics.csv` files
+- 27 `META.json` files
+- 27 `concept_f1.csv` files
+- 4 bootstrap CSV files (full/validation for token/prediction protocols)
+- `train.log`
+
+The gzip stream and archive listing were verified on Ronnie. The package was
+then copied to the Mac and its hash was verified again:
+
+```text
+size:    7,194,729 bytes
+SHA-256: 1702d3270c992d859e328c0b763192b8f3a946dd704c6a440ea572e2a6ed94b6
+```
