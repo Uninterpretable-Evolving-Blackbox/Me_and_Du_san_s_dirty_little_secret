@@ -113,7 +113,20 @@ two models trained comparably, which the result depends on.
 > If the run ends with **"REFUSING to prune Z.npy"**, the bootstrap didn't finish. Nothing
 > was deleted — send Wei the log and *don't* clear the directories; the run can resume.
 
-Then delete `~/own_sae_data/` and `outputs_ctrl/` — nothing else is needed.
+### ⛔ Please KEEP the trained checkpoints
+
+**Do not delete `~/own_sae_data/`.** The three `model_final.pt` checkpoints are the
+expensive, irreplaceable output — everything else is re-derivable from them in minutes.
+
+Please also send these back (~500 MB each, ~1.5 GB total):
+
+```
+~/own_sae_data/uniref50_pilot/ckpt_clm_s42/model_final.pt
+~/own_sae_data/uniref50_pilot/ckpt_mlm_s42_token/model_final.pt
+~/own_sae_data/uniref50_pilot/ckpt_mlm_s42_pred/model_final.pt
+```
+
+`outputs_ctrl/` is safe to delete once the CSVs above are sent.
 
 ---
 
