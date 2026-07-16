@@ -24,6 +24,36 @@ from model_ctrl_esmc import CtrlESMC
 from train_sae import compute_norm_scale, train_sae, extract_sae_features
 
 
+def effective_rank(X: np.ndarray):
+    """Participation ratio + entropy effective rank of activations X (N, D). SAE-free.
+
+    From eigenvalues of the DxD covariance (cheap). Low rank relative to a comparison
+    arm is what invalidates a cross-arm SAE comparison (the SAE lands in a different
+    regime on each), so this is logged alongside val_EV as the validity check."""
+    Xc = X - X.mean(axis=0, keepdims=True)
+    cov = (Xc.T @ Xc) / max(1, Xc.shape[0] - 1)
+    lam = np.clip(np.linalg.eigvalsh(cov.astype(np.float64)), 0, None)
+    s = float(lam.sum())
+    if s <= 0:
+        return dict(participation_ratio=0.0, entropy_erank=0.0)
+    pr = (s * s) / float(np.sum(lam * lam))
+    p = lam / s
+    p = p[p > 0]
+    return dict(participation_ratio=float(pr),
+                entropy_erank=float(np.exp(-np.sum(p * np.log(p)))))
+
+
+@torch.no_grad()
+def sae_val_ev(sae, X_val_scaled, sdev):
+    """SAE val explained variance on already-norm-scaled held-out residues."""
+    xb = torch.from_numpy(X_val_scaled.astype(np.float32)).to(sdev)
+    z, _ = sae.encode(xb)
+    recon = sae.decode(z)
+    num = ((xb - recon) ** 2).sum().item()
+    den = ((xb - xb.mean(0)) ** 2).sum().item()
+    return 1.0 - num / den if den > 0 else float("nan")
+
+
 def pick_device(pref):
     if pref != "auto":
         return pref
@@ -135,6 +165,19 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     Z, _ = extract_sae_features(sae, (X * norm_scale).astype(np.float32),
                                 device=sdev, save_dir=str(out))
+
+    # SAE-VALIDITY diagnostic (the check whose absence invalidated the earlier pilot):
+    # val_EV >= 0.99 == degenerate basis; effective rank tells whether the two arms'
+    # SAEs are even in comparable regimes. Computed here where X is still in memory.
+    val_rows = np.zeros(X.shape[0], dtype=bool)
+    for i in range(len(uids)):
+        if is_val[i]:
+            val_rows[offsets[i]:offsets[i] + lengths[i]] = True
+    ev = sae_val_ev(sae, X[val_rows] * norm_scale, sdev) if val_rows.any() else float("nan")
+    rank = effective_rank(X)
+    print(f"val_EV {ev:.4f}{'  <-- DEGENERATE (>=0.99)' if ev >= 0.99 else ''} | "
+          f"eff.rank PR {rank['participation_ratio']:.1f} eRank {rank['entropy_erank']:.1f} / {D}d")
+
     seqs_trunc = [s[:int(lengths[i])] for i, s in enumerate(seqs)]
     np.save(out / "Z.npy", Z.astype(np.float16))
     np.save(out / "lengths.npy", lengths.astype(np.int32))
@@ -149,6 +192,9 @@ def main():
         "ckpt": args.ckpt, "ckpt_tokens": int(ck.get("tokens", 0)),
         "causal": cfg["causal"], "anchor": "ESM-C (esm==3.2.3 TransformerStack)",
         "sae_seed": args.sae_seed,
+        "val_EV": float(ev), "degenerate": bool(ev >= 0.99),
+        "participation_ratio": rank["participation_ratio"],
+        "entropy_erank": rank["entropy_erank"],
     }, indent=2))
     print(f"Z {Z.shape} sparsity {(Z==0).mean()*100:.1f}%  ->  {out}")
 

@@ -113,6 +113,21 @@ two models trained comparably, which the result depends on.
 > If the run ends with **"REFUSING to prune Z.npy"**, the bootstrap didn't finish. Nothing
 > was deleted — send Wei the log and *don't* clear the directories; the run can resume.
 
+### One extra 15-min run, if you still have the checkpoints
+
+We need one diagnostic the first run didn't record: how many dimensions each model's
+activations actually use, and whether the sparse-autoencoder basis is degenerate. It
+reads the checkpoints you already have and writes one small JSON:
+
+```bash
+bash run_validity_check.sh              # ~15-40 min (rank + SAE val_EV, all depths)
+# or, much faster, rank only:
+NO_EV=1 bash run_validity_check.sh      # ~5 min, no autoencoder
+```
+
+Send back `results_rank_ev/summary.json` (a few KB). This one matters — it decides
+whether the main measurement is trustworthy for this pair of models.
+
 ### ⛔ Please KEEP the trained checkpoints
 
 **Do not delete `~/own_sae_data/`.** The three `model_final.pt` checkpoints are the
@@ -169,6 +184,7 @@ Later, if asked: `SEEDS="43 44" bash run_full_ctrl.sh` adds replicates with no n
 | `cpu_stage.py` | computes the structural-locality metric (CPU, multi-core) |
 | `experiment_concept_f1.py` | second, independent lens: feature<->concept alignment |
 | `outputs_robustness/compute_h1_bootstrap.py` | the confidence intervals |
+| `measure_rank_ev.py` / `run_validity_check.sh` | effective rank + SAE val_EV (validity check) |
 | `prep_controlled_corpus.py` / `fetch_pdbs.py` | data setup |
 | `cache/`, `eval_set/` | precomputed features + the exact 1,500 eval proteins |
 
