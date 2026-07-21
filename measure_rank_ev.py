@@ -96,9 +96,11 @@ def main():
             rec["val_EV"] = float(sae_val_ev(sae, X[rowmask] * ns, dev))
             rec["degenerate"] = bool(rec["val_EV"] >= 0.99)
         rows.append(rec)
-        ev = f" val_EV {rec['val_EV']:.4f}{'  <-- DEGENERATE' if rec.get('degenerate') else ''}" if args.with_ev else ""
-        print(f"  L{L:>2}: PR {rk['participation_ratio']:6.1f}  eRank {rk['entropy_erank']:6.1f}  "
-              f"/ {rec['d_model']}d{ev}", flush=True)
+        ev = f" | val_EV {rec['val_EV']:.4f}{'  DEGENERATE' if rec.get('degenerate') else ''}" if args.with_ev else ""
+        # pr_drop5 is the honest cross-model number; top1_share flags massive activations
+        print(f"  L{L:>2}: PR {rk['participation_ratio']:7.1f}  -1 {rk['pr_drop1']:7.1f}  "
+              f"-5 {rk['pr_drop5']:7.1f}  top1 {rk['top1_share']*100:5.1f}%  "
+              f"90%@{rk['dims_90pct']:>4}/{rec['d_model']}{ev}", flush=True)
 
     out = Path(args.out); out.parent.mkdir(parents=True, exist_ok=True)
     prev = json.loads(out.read_text())["rows"] if out.exists() else []

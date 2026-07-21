@@ -118,6 +118,18 @@ def main():
     ap.add_argument("--match-predictions", action="store_true")
     ap.add_argument("--log-every", type=int, default=50)
     ap.add_argument("--val-every", type=int, default=1000)
+    # --- token-ablation support -------------------------------------------------
+    # A token ablation is ONE long run per arm with checkpoints along the way, not N
+    # separate runs, so the whole rank-vs-tokens curve costs the same as its longest
+    # point. Milestone checkpoints are model-only (~1/3 the size) since they are for
+    # analysis, never for resuming.
+    ap.add_argument("--ckpt-at-tokens", default="",
+                    help="comma-separated token milestones, e.g. 0.66e9,2.1e9,4.2e9. "
+                         "Saves model-only model_tok<N>M.pt at each (idempotent).")
+    ap.add_argument("--rolling-resume", action="store_true",
+                    help="periodic checkpoints overwrite ONE model_resume.pt instead of "
+                         "accumulating model_step*.pt (bounds disk on multi-billion-token runs)")
+    # ----------------------------------------------------------------------------
     ap.add_argument("--ckpt-every", type=int, default=5000,
                     help="save a checkpoint every N steps (~82M tokens at defaults)")
     ap.add_argument("--stop-at-tokens", type=float, default=0,
@@ -202,11 +214,32 @@ def main():
     out = Path(args.out_dir or (Path(args.data_dir) / f"ckpt_{args.objective}"))
     out.mkdir(parents=True, exist_ok=True)
 
-    def save_ckpt(step, tag):
-        torch.save({"model": model.state_dict(), "opt": opt.state_dict(),
-                    "cfg": cfg, "meta": meta, "objective": args.objective,
-                    "step": step, "tokens": int((step + 1) * toks_per_step)},
-                   out / f"model_{tag}.pt")
+    def save_ckpt(step, tag, model_only=False):
+        d = {"model": model.state_dict(), "cfg": cfg, "meta": meta,
+             "objective": args.objective, "step": step,
+             "tokens": int((step + 1) * toks_per_step)}
+        if not model_only:                     # optimizer state only needed for resume
+            d["opt"] = opt.state_dict()
+        torch.save(d, out / f"model_{tag}.pt")
+
+    milestones = sorted(int(float(x)) for x in args.ckpt_at_tokens.split(",") if x.strip())
+    if milestones:
+        print(f"  token milestones: {[f'{m/1e9:.2f}B' for m in milestones]} "
+              f"-> model_tok<N>M.pt (model-only)")
+
+    def _ms_tag(ms):
+        # %g keeps significant figures, so sub-1M milestones don't collide into "tok0M"
+        return f"tok{ms/1e6:g}M"
+
+    def save_milestones(step):
+        """Save any milestone reached. Idempotent: skips files that already exist,
+        so resuming a long run never re-writes or double-counts."""
+        tok_now = (step + 1) * toks_per_step
+        for ms in milestones:
+            f = out / f"model_{_ms_tag(ms)}.pt"
+            if tok_now >= ms and not f.exists():
+                save_ckpt(step, _ms_tag(ms), model_only=True)
+                print(f"  [milestone] {f.name}  (~{tok_now/1e9:.2f}B tok)", flush=True)
 
     start_step = 0
     if args.resume:
@@ -251,11 +284,14 @@ def main():
                       for vb in make_batches(len(va), args.batch_size, 7, 10)]
             print(f"  [val] step {step} loss {np.mean(vl):.4f}")
             model.train()
+        save_milestones(step)
         if args.ckpt_every and step > 0 and step % args.ckpt_every == 0:
-            save_ckpt(step, f"step{step}")
-            print(f"  [ckpt] model_step{step}.pt (~{(step+1)*toks_per_step/1e6:.0f}M tok)")
+            tag = "resume" if args.rolling_resume else f"step{step}"
+            save_ckpt(step, tag)
+            print(f"  [ckpt] model_{tag}.pt (~{(step+1)*toks_per_step/1e6:.0f}M tok)")
 
     done = run_to >= steps
+    save_milestones(run_to - 1)          # catch a milestone landing on the final step
     tag = "final" if done else "partial"
     save_ckpt(run_to - 1, tag)
     fl = f"{loss.item():.4f}" if loss is not None else "n/a"

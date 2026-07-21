@@ -25,22 +25,39 @@ from train_sae import compute_norm_scale, train_sae, extract_sae_features
 
 
 def effective_rank(X: np.ndarray):
-    """Participation ratio + entropy effective rank of activations X (N, D). SAE-free.
+    """Effective rank of activations X (N, D), SAE-free, WITH outlier control.
 
-    From eigenvalues of the DxD covariance (cheap). Low rank relative to a comparison
-    arm is what invalidates a cross-arm SAE comparison (the SAE lands in a different
-    regime on each), so this is logged alongside val_EV as the validity check."""
+    Raw participation ratio is dominated by "massive activation" outlier dimensions:
+    a single rogue dim can drive PR to ~1 even when the rest of the representation is
+    high-rank (real RITA does exactly this - one dim holds ~97% of variance). So we
+    report PR after dropping the top-1 and top-5 eigenvalues, plus the top-1 share
+    itself, which is the massive-activation diagnostic.
+
+      participation_ratio : raw PR  (comparable across models ONLY with top1_share)
+      pr_drop1 / pr_drop5 : PR of the spectrum with the top 1 / 5 components removed
+      top1_share          : fraction of total variance in the largest component
+    """
     Xc = X - X.mean(axis=0, keepdims=True)
     cov = (Xc.T @ Xc) / max(1, Xc.shape[0] - 1)
     lam = np.clip(np.linalg.eigvalsh(cov.astype(np.float64)), 0, None)
+    lam = np.sort(lam)[::-1]                       # descending
     s = float(lam.sum())
     if s <= 0:
-        return dict(participation_ratio=0.0, entropy_erank=0.0)
-    pr = (s * s) / float(np.sum(lam * lam))
+        return dict(participation_ratio=0.0, entropy_erank=0.0,
+                    pr_drop1=0.0, pr_drop5=0.0, top1_share=0.0, dims_90pct=0)
+
+    def _pr(l):
+        t = float(l.sum())
+        return float((t * t) / float(np.sum(l * l))) if t > 0 else 0.0
+
     p = lam / s
     p = p[p > 0]
-    return dict(participation_ratio=float(pr),
-                entropy_erank=float(np.exp(-np.sum(p * np.log(p)))))
+    return dict(participation_ratio=_pr(lam),
+                entropy_erank=float(np.exp(-np.sum(p * np.log(p)))),
+                pr_drop1=_pr(lam[1:]),
+                pr_drop5=_pr(lam[5:]),
+                top1_share=float(lam[0] / s),
+                dims_90pct=int(np.searchsorted(np.cumsum(lam) / s, 0.90)) + 1)
 
 
 @torch.no_grad()

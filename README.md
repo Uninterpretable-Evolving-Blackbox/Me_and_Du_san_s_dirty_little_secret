@@ -113,6 +113,42 @@ two models trained comparably, which the result depends on.
 > If the run ends with **"REFUSING to prune Z.npy"**, the bootstrap didn't finish. Nothing
 > was deleted — send Wei the log and *don't* clear the directories; the run can resume.
 
+---
+
+# ⭐ NEXT EXPERIMENT: the token ablation (this is the one we need now)
+
+**If you only run one thing, run this.**
+
+```bash
+git pull
+nohup bash run_token_ablation.sh > token_ablation.log 2>&1 &
+tail -f token_ablation.log
+```
+
+**What it is.** The models you trained saw 660M tokens ≈ **16 tokens per parameter**. Real
+protein language models (ESM-C, ESM-2) are trained at **thousands** of tokens per parameter —
+100–1000× more. So when our small models behave differently from the real ones, we can't tell
+if that's about model *size* or simply about *how long they trained*. This holds size fixed and
+varies training length, which is the cheaper and more informative axis.
+
+**How long.** ~25 h per model, **~50 h total** for both (measured 233k tok/s on your card).
+Fully resumable — Ctrl-C, crashes, reboots are all fine, just re-run the same command.
+
+Want a shorter version first? This still gives a 6× span in ~10 h:
+```bash
+MAX_TOKENS=4.2e9 MILESTONES=0.66e9,2.1e9,4.2e9 bash run_token_ablation.sh
+```
+
+**Disk:** ~4 GB (checkpoints along the way are model-only, ~170 MB each).
+
+**What to send back:** just `results_token_ablation/summary.json` (a few KB) and
+`token_ablation.log`. Nothing large.
+
+**It won't disturb your earlier run** — everything goes to a separate
+`~/own_sae_data/token_ablation/` folder.
+
+---
+
 ### One extra 15-min run, if you still have the checkpoints
 
 We need one diagnostic the first run didn't record: how many dimensions each model's
@@ -184,6 +220,7 @@ Later, if asked: `SEEDS="43 44" bash run_full_ctrl.sh` adds replicates with no n
 | `cpu_stage.py` | computes the structural-locality metric (CPU, multi-core) |
 | `experiment_concept_f1.py` | second, independent lens: feature<->concept alignment |
 | `outputs_robustness/compute_h1_bootstrap.py` | the confidence intervals |
+| `run_token_ablation.sh` | **the current experiment** — rank vs training length |
 | `measure_rank_ev.py` / `run_validity_check.sh` | effective rank + SAE val_EV (validity check) |
 | `prep_controlled_corpus.py` / `fetch_pdbs.py` | data setup |
 | `cache/`, `eval_set/` | precomputed features + the exact 1,500 eval proteins |
