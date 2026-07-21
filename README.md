@@ -1,5 +1,22 @@
 # Controlled MLM-vs-CLM protein LM experiment
 
+## 👉 START HERE
+
+**Already ran this once (thank you!)? You're set up — skip Steps 1–5.** Just `git pull`, then
+do these two, in this order:
+
+1. **[The 15-minute validity check](#one-extra-15-min-run-if-you-still-have-the-checkpoints)** —
+   uses the models you already trained. Quick and important.
+2. **[The token ablation](#-next-experiment-the-token-ablation-this-is-the-one-we-need-now)** —
+   the main new experiment, ~50 h, runs in the background.
+
+Also: **please don't delete `~/own_sae_data/`** — those trained models are what everything
+below reuses.
+
+**First time here?** Start at Step 1 below.
+
+---
+
 Thanks for lending the GPU! This runs a complete experiment on your machine and sends
 back a handful of small CSVs. It's automated — realistically it's **four commands**,
 then you leave it alone.
