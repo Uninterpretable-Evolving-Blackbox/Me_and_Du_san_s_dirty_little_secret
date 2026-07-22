@@ -70,8 +70,12 @@ def main():
     model = CtrlESMC(**cfg)
     model.load_state_dict(ck["model"])
     model = model.to(dev)
+    _np = sum(p.numel() for p in model.parameters())
+    _tok = int(ck.get("tokens", 0))
     print(f"{args.name}: {cfg['d_model']}d/{cfg['n_layers']}L causal={cfg['causal']} | "
-          f"{len(uids)} proteins | dev {dev} | EV={'on' if args.with_ev else 'off'}")
+          f"{_np/1e6:.1f}M params | {_tok/1e9:.2f}B tok "
+          f"({_tok/_np:.0f} tok/param) | {len(uids)} proteins | dev {dev} | "
+          f"EV={'on' if args.with_ev else 'off'}")
 
     layers = [int(x) for x in args.layers.split(",")]
     rows = []
@@ -79,8 +83,17 @@ def main():
         X, lengths = extract_layer(model, uids, seqs, L, meta["aa2id"],
                                    meta["bos"], meta["eos"], meta["pad"], dev)
         rk = effective_rank(X)
+        # tokens/step/objective are the X-AXIS of the token ablation: without them the
+        # rank numbers cannot be plotted against training length. Read from the ckpt.
+        n_params = sum(p.numel() for p in model.parameters())
+        tokens = int(ck.get("tokens", 0))
         rec = dict(name=args.name, layer=L, n_residues=int(X.shape[0]),
-                   d_model=int(X.shape[1]), **rk)
+                   d_model=int(X.shape[1]),
+                   tokens=tokens, step=int(ck.get("step", -1)),
+                   objective=ck.get("objective", "?"),
+                   n_params=int(n_params),
+                   tokens_per_param=round(tokens / n_params, 2) if n_params else None,
+                   **rk)
         if args.with_ev:
             offs = np.concatenate([[0], np.cumsum(lengths)[:-1]]).astype(np.int64)
             is_val = np.array([u in val_uids for u in uids], dtype=bool)

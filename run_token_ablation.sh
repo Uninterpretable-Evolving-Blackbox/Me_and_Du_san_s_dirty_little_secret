@@ -55,7 +55,10 @@ PY
 echo "########## TOKEN ABLATION | max=${MAX_TOKENS} tok | milestones=${MILESTONES} | $(date) ##########"
 
 train_arm () {
-  local OBJ="$1" D="$OUTROOT/ckpt_${OBJ}_s${SEED}"
+  # NOTE: declare separately. Under `set -u`, a single `local A=.. B=..${A}..` fails,
+  # because bash creates both names before assigning, so ${A} is still unset in B.
+  local OBJ="$1"
+  local D="$OUTROOT/ckpt_${OBJ}_s${SEED}"
   mkdir -p "$D"
   if [ -f "$D/model_final.pt" ]; then echo "[$OBJ] already complete - skip"; return 0; fi
   for try in $(seq 1 $MAXTRIES); do

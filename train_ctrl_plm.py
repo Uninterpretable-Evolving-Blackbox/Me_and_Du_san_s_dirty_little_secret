@@ -247,6 +247,12 @@ def main():
         model.load_state_dict(ck["model"])
         if "opt" in ck:
             opt.load_state_dict(ck["opt"])
+        else:
+            # milestone checkpoints are model-only. Resuming from one silently restarts
+            # Adam's moments, which is a real (invisible) change to the optimisation.
+            print("  WARNING: checkpoint has no optimizer state (this looks like a "
+                  "model-only milestone). Adam moments are being RESET. For a clean "
+                  "resume use model_resume.pt / model_partial.pt instead.", flush=True)
         start_step = int(ck.get("step", 0)) + 1
         print(f"resumed from {args.resume} at step {start_step} "
               f"(~{start_step*toks_per_step/1e6:.0f}M tok). LR schedule still planned for {steps} steps.")
