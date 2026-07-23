@@ -42,6 +42,7 @@ D_MODEL=320; N_HEADS=5; N_LAYERS=30       # ESM-C: head_dim 64, depth 30
 # 30 blocks (index/29, same convention as the paper's ESM-2 L0..L32 => index/32).
 DEPTHS="0 4 7 11 14 18 22 26 29"
 BOOT_DEPTHS="all"                         # depth labels for the bootstrap (see preset)
+BOOT_STEM_PREFIX="bootstrap_h1_ctrl_esmc" # smoke uses a distinct namespace below
 N_SHUFFLES=5                              # paper: "5 within-protein permutations"
 # -------------------------------------------------------------------
 
@@ -49,6 +50,7 @@ if [ "$SMOKE" = "1" ]; then
   DATA="$HOME/own_sae_data/uniref50_smoke"; OUT="outputs_ctrl_smoke"
   SEEDS="42"; PROTOCOLS="token"; DEPTHS="0 29"
   BOOT_DEPTHS="0,100"                     # only the depths the smoke actually built
+  BOOT_STEM_PREFIX="bootstrap_h1_ctrl_esmc_smoke"
   SMOKE_TRAIN="--smoke"; SMOKE_EVAL="--max-proteins 40 --sae-epochs 2"
   SMOKE_CF1="--quick --max-features 256 --min-domains 2"
   echo "### SMOKE MODE: tiny corpus, 2 depths, 40 proteins — proves the chain, not the science"
@@ -135,7 +137,7 @@ bootstrap_pair () {
   local SEED="$1" PROTO="$2"
   local A B STEM
   A=$(tag mlm "$SEED" "$PROTO"); B=$(tag clm "$SEED" "$PROTO")
-  STEM="bootstrap_h1_ctrl_esmc_s${SEED}_${PROTO}"
+  STEM="${BOOT_STEM_PREFIX}_s${SEED}_${PROTO}"
   if [ -f "outputs_robustness/${STEM}_full_bylevel_minact0.csv" ]; then
     echo "[bootstrap s$SEED $PROTO] done - skip"; return 0
   fi
@@ -154,7 +156,7 @@ prune_z () {
   [ "${KEEP_Z:-0}" = "1" ] && { echo "KEEP_Z=1 — keeping Z.npy"; return 0; }
   local missing=0
   for s in $SEEDS; do for proto in $PROTOCOLS; do
-    [ -f "outputs_robustness/bootstrap_h1_ctrl_esmc_s${s}_${proto}_full_bylevel_minact0.csv" ] || missing=1
+    [ -f "outputs_robustness/${BOOT_STEM_PREFIX}_s${s}_${proto}_full_bylevel_minact0.csv" ] || missing=1
   done; done
   if [ "$missing" = "1" ]; then
     echo "REFUSING to prune Z.npy: a bootstrap CSV is missing — Z is its only input."
@@ -182,8 +184,8 @@ echo; echo "########## DONE $(date) ##########"
 echo "Results to send back:"
 find "$OUT" -name struct_seq_metrics.csv 2>/dev/null | sort | sed 's/^/  /'
 find results_concept_f1 -name 'concept_f1.csv' 2>/dev/null | sort | sed 's/^/  /'
-find outputs_robustness -name 'bootstrap_h1_ctrl_esmc_*.csv' 2>/dev/null | sort | sed 's/^/  /'
+find outputs_robustness -name "${BOOT_STEM_PREFIX}_s*.csv" 2>/dev/null | sort | sed 's/^/  /'
 echo
 echo "  tar czf ctrl_results.tgz \\"
 echo "    \$(find $OUT -name 'struct_seq_metrics.csv' -o -name 'META.json') \\"
-echo "    results_concept_f1 outputs_robustness/bootstrap_h1_ctrl_esmc_*.csv train.log"
+echo "    results_concept_f1 outputs_robustness/${BOOT_STEM_PREFIX}_s*.csv train.log"
