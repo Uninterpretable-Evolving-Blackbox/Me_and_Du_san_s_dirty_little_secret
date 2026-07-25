@@ -233,11 +233,18 @@ def main():
 
     def save_milestones(step):
         """Save any milestone reached. Idempotent: skips files that already exist,
-        so resuming a long run never re-writes or double-counts."""
+        so resuming a long run never re-writes or double-counts.
+
+        A milestone is clamped to the max tokens the run can actually reach:
+        run_to*toks_per_step FLOORS below target_tokens (int(21e9/16384)*16384 =
+        20,999,995,392, 4608 short of 21e9), so a milestone equal to the budget would
+        otherwise never fire and the rightmost curve point would be silently dropped.
+        (run_to is defined below but resolved here at call time.)"""
         tok_now = (step + 1) * toks_per_step
+        max_run_tokens = run_to * toks_per_step
         for ms in milestones:
             f = out / f"model_{_ms_tag(ms)}.pt"
-            if tok_now >= ms and not f.exists():
+            if tok_now >= min(ms, max_run_tokens) and not f.exists():
                 save_ckpt(step, _ms_tag(ms), model_only=True)
                 print(f"  [milestone] {f.name}  (~{tok_now/1e9:.2f}B tok)", flush=True)
 
