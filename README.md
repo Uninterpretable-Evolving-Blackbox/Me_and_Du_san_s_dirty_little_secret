@@ -3,12 +3,16 @@
 ## 👉 START HERE
 
 **Already ran this once (thank you!)? You're set up — skip Steps 1–5.** Just `git pull`, then
-do these two, in this order:
+do these, in this order:
 
 1. **[The 15-minute validity check](#one-extra-15-min-run-if-you-still-have-the-checkpoints)** —
    uses the models you already trained. Quick and important.
 2. **[The token ablation](#-next-experiment-the-token-ablation-this-is-the-one-we-need-now)** —
-   the main new experiment, ~50 h, runs in the background.
+   ~50 h, runs in the background.
+3. **[The C2 instrument fix](#-c2-the-instrument-fix)** — a few hours, analysis only.
+4. **[The crosscoder](#-the-crosscoder-shared-vs-objective-specific-features)** — the newest
+   experiment, ~2–4 h, analysis only. This is the one that answers a question the previous
+   runs structurally *could not*.
 
 Also: **please don't delete `~/own_sae_data/`** — those trained models are what everything
 below reuses.
@@ -198,6 +202,95 @@ Please also send these back (~500 MB each, ~1.5 GB total):
 
 ---
 
+# 🔧 C2: the instrument fix
+
+**Analysis only — no training. A few hours. Run this before the crosscoder.**
+
+```bash
+git pull
+bash run_c2_pertoken.sh
+```
+
+**Why.** The validity check found that the MLM sparse autoencoders are *degenerate* at the
+shallowest depths (`val_EV >= 0.99` at blocks 0 and 4 — the same threshold that got an earlier
+model dropped from the paper entirely). At that point the autoencoder isn't really compressing
+anything, so the structural-locality numbers there can't be trusted. The fix is to normalise
+each residue's activation vector to a fixed length before the autoencoder sees it, which
+removes the handful of enormous activations that were soaking up all its capacity.
+
+This re-runs extract → normalise → autoencoder → locality + concept alignment + confidence
+intervals, for both arms at all 9 depths, and also the un-normalised baseline so we can plot
+before/after. Resumable and idempotent — interrupt it freely.
+
+> **Note:** an earlier version of this script deleted `Z.npy` before the confidence intervals
+> and the second lens had used it, which would have left us with point estimates and no way to
+> recover. Fixed — but if you pulled before 2026-07-25, `git pull` again.
+
+---
+
+# 🧬 The crosscoder: shared vs objective-specific features
+
+**Analysis only — no training. ~2–4 h. This is the newest and most interesting one.**
+
+### ⏱️ Please run ONE cell first (~15 min) and send me the output
+
+```bash
+git pull
+DEPTHS="14" SEEDS="42" bash run_crosscoder_ctrl.sh
+```
+
+Then paste me the two lines that look like:
+
+```
+Delta_norm median 0.6xx [10-90: 0.6xx, 0.6xx] | absolute bins occupied n/5
+Spearman(Delta_norm, struct_delta) = +0.xxxx   <-- PRIMARY
+```
+
+**Why I'm asking.** This method can fail in a specific way: if every feature ends up used
+*equally* by both models, the whole comparison has no dynamic range and there's nothing to
+find. On my ESM-2/RITA test the spread was very narrow, which may just be undertraining or may
+be the method saying "these two models share everything." That's a real possible answer, but I'd
+rather spend 15 minutes of your GPU finding out than 4 hours. If the spread is healthy, run the
+rest:
+
+```bash
+bash run_crosscoder_ctrl.sh
+```
+
+**Why this one is different.** Everything we've run so far trains a *separate* feature
+dictionary for the masked model and for the causal model, then compares statistics of the two
+sets. But the two dictionaries have no correspondence — feature #57 in one has nothing to do
+with feature #57 in the other. So the question we actually care about was never even
+expressible:
+
+> Are the features that encode 3D structure **shared** between the two training objectives, or
+> do they exist **only** in the masked model?
+
+A *crosscoder* trains ONE dictionary that has to reconstruct **both** models at once, with a
+separate output matrix per model. Now every feature is a single shared object, and how much
+each model relies on it says whether it's shared or specific to one objective. Both answers are
+interesting: "unique to masked" means the objective creates a whole family of structural
+features; "shared but sharper" means both models build them and bidirectionality just refines
+them.
+
+**Why it runs on your box rather than Wei's.** Both arms here are the *same* architecture — one
+backbone, one initialisation, only the objective differs. The published diagnostic that checks
+whether a "model-specific" feature is real requires both models to have the same width, so it
+works here and does **not** work on the older ESM-2-vs-RITA pair (1280 vs 1536). This pair is
+the only place the claim can actually be confirmed.
+
+Defaults: 3 depths (25%/50%/75% — the validity check said 0% and 13% aren't trustworthy) × 3
+seeds. Skips finished cells, so you can stop and restart.
+
+```bash
+ALL=1 bash run_crosscoder_ctrl.sh          # also the full 9-depth profile at seed 42
+DEPTHS="14" SEEDS="42" bash run_crosscoder_ctrl.sh   # one quick cell, ~15 min, to check it works
+```
+
+Send back everything except `Z.npy` (the script prints the exact `tar` line, ~a few MB).
+
+---
+
 ## ⚠️ Please don't tune the hyperparameters
 
 This is the one thing that would silently ruin the experiment. Batch size (32), learning
@@ -237,8 +330,10 @@ Later, if asked: `SEEDS="43 44" bash run_full_ctrl.sh` adds replicates with no n
 | `cpu_stage.py` | computes the structural-locality metric (CPU, multi-core) |
 | `experiment_concept_f1.py` | second, independent lens: feature<->concept alignment |
 | `outputs_robustness/compute_h1_bootstrap.py` | the confidence intervals |
-| `run_token_ablation.sh` | **the current experiment** — rank vs training length |
+| `run_token_ablation.sh` | rank vs training length |
 | `measure_rank_ev.py` / `run_validity_check.sh` | effective rank + SAE val_EV (validity check) |
+| `run_c2_pertoken.sh` | the instrument fix — per-token normalisation, redone end to end |
+| `crosscoder.py` / `eval_crosscoder_ctrl.py` / `run_crosscoder_ctrl.sh` | **the current experiment** — one shared dictionary across both arms; shared vs objective-specific features |
 | `prep_controlled_corpus.py` / `fetch_pdbs.py` | data setup |
 | `cache/`, `eval_set/` | precomputed features + the exact 1,500 eval proteins |
 
