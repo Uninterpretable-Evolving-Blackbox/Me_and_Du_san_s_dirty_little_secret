@@ -232,30 +232,57 @@ before/after. Resumable and idempotent — interrupt it freely.
 
 **Analysis only — no training. ~2–4 h. This is the newest and most interesting one.**
 
-### ⏱️ Please run ONE cell first (~15 min) and send me the output
+**This one runs in three stages, and I'd like to look at the output between each.** Not
+bureaucracy — the method has a specific failure mode (below) and each stage is a cheap check on
+the next one being worth your GPU.
+
+### Stage 0 — one cell, ~15 min. Please do this first and send me the output.
 
 ```bash
 git pull
-DEPTHS="14" SEEDS="42" bash run_crosscoder_ctrl.sh
+STAGE=0 bash run_crosscoder_ctrl.sh
 ```
 
-Then paste me the two lines that look like:
+Paste me the two lines that look like:
 
 ```
 Delta_norm median 0.6xx [10-90: 0.6xx, 0.6xx] | absolute bins occupied n/5
 Spearman(Delta_norm, struct_delta) = +0.xxxx   <-- PRIMARY
 ```
 
-**Why I'm asking.** This method can fail in a specific way: if every feature ends up used
-*equally* by both models, the whole comparison has no dynamic range and there's nothing to
-find. On my ESM-2/RITA test the spread was very narrow, which may just be undertraining or may
-be the method saying "these two models share everything." That's a real possible answer, but I'd
-rather spend 15 minutes of your GPU finding out than 4 hours. If the spread is healthy, run the
-rest:
+**Why I'm asking.** This method can fail in one specific way: if every feature ends up used
+*equally* by both models, the comparison has no dynamic range and there is nothing to find. On
+my ESM-2/RITA test the spread was narrow — that may just be undertraining, or it may be the
+method saying "these two models share everything." Either is a real answer, but I'd rather find
+out with 15 minutes of your GPU than 4 hours.
+
+### Stage 1 — seed 42 across depths, ~1–2 h.
 
 ```bash
 bash run_crosscoder_ctrl.sh
 ```
+
+Then **stop** and send the results. I'll look before we spend anything on more seeds.
+
+### Stage 2 — the other two seeds, ~2–4 h. Only once I've said go.
+
+```bash
+STAGE=2 bash run_crosscoder_ctrl.sh
+```
+
+### About the hyperparameters
+
+I may send you three numbers to pass in:
+
+```bash
+EXPANSION=8 K_FRAC=0.20 EPOCHS=120 bash run_crosscoder_ctrl.sh
+```
+
+These get chosen on the *older* ESM-2-vs-RITA models on my machine, not on yours, and then
+frozen. That's deliberate: those older models confound four things at once so they can't support
+the main claim anyway, which makes them the right place to do the tuning. Your models differ in
+exactly one thing (masked vs causal), so they're where the actual result comes from — and
+nothing about how they're analysed gets tuned on the answer. **Please don't tune these.**
 
 **Why this one is different.** Everything we've run so far trains a *separate* feature
 dictionary for the masked model and for the causal model, then compares statistics of the two
