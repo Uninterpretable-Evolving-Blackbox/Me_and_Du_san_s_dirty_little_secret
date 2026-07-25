@@ -163,9 +163,24 @@ prune_z () {
     echo "  Fix the bootstrap and re-run; nothing is deleted. (KEEP_Z=1 to silence.)"
     return 0
   fi
-  local n; n=$(find "$OUT" -name Z.npy | wc -l | tr -d ' ')
-  find "$OUT" -name Z.npy -delete
-  echo "pruned $n Z.npy (~$((n*3/2)) GB) — L_struct + bootstrap already computed"
+  # Delete ONLY the (seed, protocol) dirs this invocation verified. The guard above checks the
+  # bootstrap CSVs for $SEEDS x $PROTOCOLS, but an unscoped `find "$OUT" -name Z.npy -delete`
+  # also destroys other seeds' Z (e.g. a SEEDS="43 44" run wiping the seed-42 results) and every
+  # outputs_ctrl/ctrl_* dir written by run_c2_pertoken.sh, whose stems are never checked here.
+  # Those cannot be regenerated: their struct_seq_metrics.csv makes analyse() skip them.
+  local n=0 s_ proto_ t d
+  for s_ in $SEEDS; do
+    for proto_ in $PROTOCOLS; do
+      for t in "$(tag clm "$s_" "$proto_")" "$(tag mlm "$s_" "$proto_")"; do
+        d="$OUT/$t"; [ -d "$d" ] || continue
+        n=$((n + $(find "$d" -name Z.npy | wc -l | tr -d ' ')))
+        find "$d" -name Z.npy -delete
+      done
+    done
+  done
+  echo "pruned $n Z.npy (~$((n*3/2)) GB) for seeds [$SEEDS] x protocols [$PROTOCOLS]"
+  local left; left=$(find "$OUT" -name Z.npy | wc -l | tr -d ' ')
+  [ "$left" != "0" ] && echo "  kept $left Z.npy belonging to runs this invocation did not verify"
 }
 
 echo "########## controlled MLM-vs-CLM | seeds:$SEEDS | protocols:$PROTOCOLS | $(date) ##########"

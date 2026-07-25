@@ -150,9 +150,24 @@ prune_z () {
     echo "  Fix the bootstrap and re-run; nothing is deleted. (KEEP_Z=1 to silence.)"
     return 0
   fi
-  local n; n=$(find "$OUT" -path "*ctrl_*" -name Z.npy | wc -l | tr -d ' ')
-  find "$OUT" -path "*ctrl_*" -name Z.npy -delete
-  echo "pruned $n Z.npy — L_struct, concept-F1 and bootstrap already computed"
+  # Delete ONLY the arms this invocation actually verified. The guard above loops over $ARMS,
+  # so a narrowed run (e.g. ARMS="clm mlm_token", which this script's own header suggests) would
+  # otherwise delete Z.npy for mlm_pred — whose CIs were never computed and cannot be recomputed,
+  # because analyse() sees struct_seq_metrics.csv and skips the extraction that would recreate Z.
+  local n=0 arm cond sfx d
+  for arm in $ARMS; do
+    for cond in base ptn; do
+      [ "$cond" = "base" ] && [ "$DO_BASELINE" != "1" ] && continue
+      sfx=""; [ "$cond" = ptn ] && sfx="_ptn"
+      d="$OUT/ctrl_${arm}${sfx}"
+      [ -d "$d" ] || continue
+      n=$((n + $(find "$d" -name Z.npy | wc -l | tr -d ' ')))
+      find "$d" -name Z.npy -delete
+    done
+  done
+  echo "pruned $n Z.npy across arms [$ARMS] — L_struct, concept-F1 and bootstrap already computed"
+  local left; left=$(find "$OUT" -path "*ctrl_*" -name Z.npy | wc -l | tr -d ' ')
+  [ "$left" != "0" ] && echo "  kept $left Z.npy belonging to arms this run did not verify"
 }
 
 echo "########## C2 per-token-norm | arms:$ARMS | $(date) ##########"

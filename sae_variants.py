@@ -209,40 +209,64 @@ def activation_covariance(X: np.ndarray, max_rows: int = 200_000) -> np.ndarray:
 def train_variant_sae(X: np.ndarray, input_dim: int, *, device="cpu", epochs=60, lr=5e-5,
                       batch_size=4096, expansion=8, k_sparse=256, k_aux=64,
                       activation="topk", freeze="none", init_scheme=None, tau=0.8,
-                      seed=42, verbose=True, log_every=20) -> VariantSAE:
-    """Same optimisation recipe as train_sae (lr, epochs, AuxK); only the variant differs."""
+                      seed=42, dead_threshold=1_000_000, verbose=True,
+                      log_every=20) -> VariantSAE:
+    """Byte-for-byte the same optimisation recipe as train_sae — this is load-bearing.
+
+    A6 compares a FROZEN arm against the trained TopK reference arm, and the reference arm is
+    produced by train_sae(). If the two paths optimise differently, the "retained vs trained"
+    ratio folds an optimiser difference into the freezing effect, on the one control the paper's
+    fatal objection (R2) rests on. Measured on real ESM-2 L16 per-token-normed activations with
+    identical architecture (topk, freeze=none), seed 42, 40 epochs: val_EV +0.3323 via a plain
+    constant-lr Adam vs +0.1968 via train_sae's recipe — a 69% relative gap from optimisation
+    alone, biasing the ratio TOWARD "a random dictionary reproduces H1".
+
+    So we replicate train_sae.py exactly:
+      * AdamW(betas=(0.9,0.999), weight_decay=0.0)          train_sae.py:304
+      * CosineAnnealingLR(T_max=epochs, eta_min=lr*0.1)     train_sae.py:314, stepped per epoch
+      * clip_grad_norm_(params, 1.0)                        train_sae.py:356
+      * drop_last=True batching                             (DataLoader default there)
+      * dead_threshold=1_000_000                            train_sae.py:220 — NOT sae.py's 1e7
+    The dead_threshold default is a real trap: at 264,603 train residues x 60 epochs = 15.9M
+    tokens, 1e6 lets AuxK revive dead latents from ~epoch 4 while 1e7 delays it to ~epoch 38.
+    """
     torch.manual_seed(seed)
     np.random.seed(seed)
     cov = activation_covariance(X) if (freeze in ("frozen_decoder",) and
                                        (init_scheme or DEFAULT_INIT[freeze]) == "cov") else None
     sae = VariantSAE(input_dim=input_dim, expansion=expansion, k_sparse=k_sparse, k_aux=k_aux,
                      activation=activation, freeze=freeze, init_scheme=init_scheme, tau=tau,
-                     act_cov=cov, seed=seed).to(device)
+                     act_cov=cov, seed=seed, dead_threshold=dead_threshold).to(device)
     with torch.no_grad():
         sae.b_pre.copy_(torch.from_numpy(X.mean(0).astype(np.float32)).to(device))
     params = sae.trainable_parameters()
     if not params:
         raise RuntimeError("no trainable parameters — check the freeze mode")
-    opt = torch.optim.Adam(params, lr=lr)
+    opt = torch.optim.AdamW(params, lr=lr, betas=(0.9, 0.999), weight_decay=0.0)
+    sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=epochs, eta_min=lr * 0.1)
     n = X.shape[0]
     rng = np.random.default_rng(seed)
     sae.train()
     for ep in range(epochs):
         idx = rng.permutation(n)
         tot, nb = 0.0, 0
-        for i in range(0, n, batch_size):
+        # drop_last: match train_sae's DataLoader so the step count per epoch is identical
+        for i in range(0, n - batch_size + 1, batch_size):
             xb = torch.from_numpy(X[idx[i:i + batch_size]]).to(device)
             z, z_pre = sae.encode(xb)
             xh = sae.decode(z)
             out = sae.loss_fn(xb, xh, z, z_pre)
             opt.zero_grad(set_to_none=True)
             out["total"].backward()
+            torch.nn.utils.clip_grad_norm_(params, 1.0)
             opt.step()
             sae.normalize_decoder()
-            sae._update_activation_tracking(z)
+            sae._update_activation_tracking(z.detach())
             tot += out["recon"].detach().item(); nb += 1
+        sched.step()
         if verbose and (ep % log_every == 0 or ep == epochs - 1):
-            print(f"    epoch {ep:>3}/{epochs}  recon {tot/max(nb,1):.5f}", flush=True)
+            print(f"    epoch {ep:>3}/{epochs}  recon {tot/max(nb,1):.5f}  "
+                  f"lr {sched.get_last_lr()[0]:.2e}", flush=True)
     sae.eval()
     return sae
 
