@@ -53,6 +53,7 @@ MPS FOOTGUNS inherited from sae.py — do not "clean up":
   * use `param.copy_(...)`, never `param.data = ...`
   * TopK via `torch.where` masking, never `zeros_like` + in-place `scatter_`
 """
+import math
 from typing import Dict, Optional, Tuple
 
 import numpy as np
@@ -77,8 +78,33 @@ class CrossCoder(nn.Module):
 
     def __init__(self, d_a: int, d_b: int, hidden_dim: int, k_sparse: int,
                  k_aux: int = 64, aux_coeff: float = 1 / 32,
-                 dead_threshold: int = 1_000_000, theta_ema: float = 0.99):
+                 dead_threshold: int = 1_000_000, theta_ema: float = 0.99,
+                 freeze: str = "none", tau: float = 0.8, seed: int = 42):
+        """freeze: the E4 null baseline (Korznikov et al. 2026, adapted to crosscoders — they
+        explicitly leave crosscoder randomisation as an open problem, so this is ours).
+
+          none                 normal training
+          frozen_encoder       encoders random + frozen -> the FEATURES are random, but the
+                               decoders (and hence Delta_norm) still learn. THE informative test:
+                               does a random feature basis still produce a structural gradient
+                               in Delta_norm?
+          soft_frozen_decoder  decoders held within cosine tau of random init.
+
+        frozen_decoder is deliberately REFUSED: with both decoders pinned at random init,
+        Delta_norm is a deterministic function of the initialisation and cannot move, so the test
+        is vacuous (rho ~ 0 by construction, telling us nothing).
+        """
         super().__init__()
+        if freeze == "frozen_decoder":
+            raise ValueError(
+                "frozen_decoder is vacuous for a crosscoder: Delta_norm is computed FROM the "
+                "decoder norms, so freezing both decoders fixes the metric at its random init. "
+                "Use frozen_encoder (random features, learned decoders) or soft_frozen_decoder.")
+        if freeze not in ("none", "frozen_encoder", "soft_frozen_decoder"):
+            raise ValueError(f"unknown freeze mode {freeze!r}")
+        self.freeze_kind = freeze
+        self.tau = tau
+        self._freeze_seed = seed
         self.d_a, self.d_b = d_a, d_b
         self.hidden_dim = hidden_dim
         self.k_sparse = k_sparse
@@ -105,6 +131,7 @@ class CrossCoder(nn.Module):
         self.register_buffer("tokens_since_activation", torch.zeros(hidden_dim, dtype=torch.long))
 
         self._init_weights()
+        self._apply_freeze()
 
     def _init_weights(self):
         for dec in (self.dec_a, self.dec_b):
@@ -115,6 +142,55 @@ class CrossCoder(nn.Module):
             self.enc_a.weight.copy_(self.dec_a.weight.T)
             self.enc_b.weight.copy_(self.dec_b.weight.T)
         nn.init.zeros_(self.b_enc)
+
+    def _apply_freeze(self):
+        if self.freeze_kind == "none":
+            return
+        g = torch.Generator().manual_seed(self._freeze_seed)
+        if self.freeze_kind == "frozen_encoder":
+            with torch.no_grad():
+                for enc, d in ((self.enc_a, self.d_a), (self.enc_b, self.d_b)):
+                    W = torch.randn(self.hidden_dim, d, generator=g)
+                    enc.weight.copy_(F.normalize(W, dim=1))
+            self.enc_a.weight.requires_grad_(False)
+            self.enc_b.weight.requires_grad_(False)
+        else:  # soft_frozen_decoder
+            with torch.no_grad():
+                for dec, d in ((self.dec_a, self.d_a), (self.dec_b, self.d_b)):
+                    W = torch.randn(d, self.hidden_dim, generator=g)
+                    dec.weight.copy_(F.normalize(W, dim=0))
+                self.normalize_decoders()
+            self.register_buffer("dec_a_init", self.dec_a.weight.detach().clone())
+            self.register_buffer("dec_b_init", self.dec_b.weight.detach().clone())
+
+    @torch.no_grad()
+    def _project_decoders_to_cone(self):
+        """Keep each model's decoder column within cosine tau of its random init.
+        Same construction as sae_variants._project_to_cone, including the float32
+        cancellation tolerance (1e-5, NOT machine epsilon — see that file)."""
+        for W, W0 in ((self.dec_a, self.dec_a_init), (self.dec_b, self.dec_b_init)):
+            V = W.weight
+            U = F.normalize(W0, dim=0)
+            nrm = V.norm(dim=0, keepdim=True).clamp_min(1e-8)
+            Vh = V / nrm
+            cos = (Vh * U).sum(0, keepdim=True)
+            bad = (cos < self.tau).squeeze(0)
+            if not bool(bad.any()):
+                continue
+            perp = Vh - cos * U
+            pn = perp.norm(dim=0, keepdim=True)
+            degen = (pn < 1e-5).squeeze(0)
+            if bool(degen.any()):
+                fb = torch.zeros_like(U[:, degen]); fb[0] = 1.0
+                fb = F.normalize(fb - (fb * U[:, degen]).sum(0, keepdim=True) * U[:, degen], dim=0)
+                perp[:, degen] = fb
+                pn = perp.norm(dim=0, keepdim=True).clamp_min(1e-8)
+            p_hat = perp / pn.clamp_min(1e-8)
+            w = self.tau * U + math.sqrt(max(0.0, 1 - self.tau ** 2)) * p_hat
+            V[:, bad] = (F.normalize(w, dim=0) * nrm)[:, bad]
+
+    def trainable_parameters(self):
+        return [p for p in self.parameters() if p.requires_grad]
 
     # ---- decoder normalisation: the one place a naive copy of sae.py breaks the metric ----
     @torch.no_grad()
@@ -228,21 +304,23 @@ def _batches(n, bs, rng=None):
 def train_crosscoder(XA: np.ndarray, XB: np.ndarray, *, hidden_dim: int, k_sparse: int,
                      device: str = "cpu", epochs: int = 60, lr: float = 5e-5,
                      batch_size: int = 4096, k_aux: int = 64, seed: int = 42,
-                     log_every: int = 10, verbose: bool = True) -> CrossCoder:
+                     log_every: int = 10, verbose: bool = True,
+                     freeze: str = "none", tau: float = 0.8) -> CrossCoder:
     """Train on TRAIN rows only. XA/XB must be row-aligned (same residue per row)."""
     assert XA.shape[0] == XB.shape[0], "row mismatch — XA and XB must be residue-aligned"
     torch.manual_seed(seed)
     np.random.seed(seed)
     rng = np.random.default_rng(seed)
 
-    cc = CrossCoder(XA.shape[1], XB.shape[1], hidden_dim, k_sparse, k_aux=k_aux).to(device)
+    cc = CrossCoder(XA.shape[1], XB.shape[1], hidden_dim, k_sparse, k_aux=k_aux,
+                    freeze=freeze, tau=tau, seed=seed).to(device)
     with torch.no_grad():
         cc.b_pre_a.copy_(torch.from_numpy(XA.mean(0).astype(np.float32)))
         cc.b_pre_b.copy_(torch.from_numpy(XB.mean(0).astype(np.float32)))
         cc.b_dec_a.copy_(cc.b_pre_a)
         cc.b_dec_b.copy_(cc.b_pre_b)
 
-    opt = torch.optim.Adam(cc.parameters(), lr=lr)
+    opt = torch.optim.Adam(cc.trainable_parameters(), lr=lr)
     n = XA.shape[0]
     cc.train()
     for ep in range(epochs):
@@ -256,8 +334,10 @@ def train_crosscoder(XA: np.ndarray, XB: np.ndarray, *, hidden_dim: int, k_spars
             out["total"].backward()
             opt.step()
             cc.normalize_decoders()
+            if cc.freeze_kind == "soft_frozen_decoder":
+                cc._project_decoders_to_cone()
             cc._update_tracking(z)
-            tot += float(out["recon"]); nb += 1
+            tot += out["recon"].detach().item(); nb += 1
         if verbose and (ep % log_every == 0 or ep == epochs - 1):
             dead = float((cc.tokens_since_activation >= cc.dead_threshold).float().mean()) * 100
             print(f"    epoch {ep:>3}/{epochs}  recon {tot/max(nb,1):.5f}  dead {dead:.1f}%",
@@ -399,3 +479,30 @@ def dead_stats(cc: CrossCoder, Z: np.ndarray) -> Dict[str, float]:
     return {"pct_dead": float((fired == 0).mean() * 100),
             "pct_always_on_90": float((fired > 0.9 * n).mean() * 100),
             "mean_l0": float((Z != 0).sum(1).mean())}
+
+
+def latent_covariates(cc: CrossCoder, Z: np.ndarray) -> Dict[str, np.ndarray]:
+    """Per-latent nuisance covariates for the E5 partial-correlation guard (R5).
+
+    The rank-gap threat: if one arm's activations occupy far more effective dimensions than the
+    other's, the SHARED dictionary reconstructs the easier arm better and shifts decoder mass
+    toward it. That drift looks exactly like "objective-specific features". Measured signature on
+    ESM-2/RITA: reconstruction cost -0.09 vs -0.31, Delta_norm drifting 0.579 -> 0.667 -> 0.743
+    across training. Spearman rho is immune to a UNIFORM shift but not to a GRADED one.
+
+    So before trusting any Delta_norm <-> L_struct relationship we partial out the things a
+    capacity imbalance would move:
+      activity   mean activation of the latent (how often/hard it fires)
+      firing     fraction of residues where it is non-zero
+      var_a/b    the variance it explains in each arm: ||d^m_j||^2 * Var(f_j)
+      var_total  their sum (overall importance, independent of the split)
+    """
+    with torch.no_grad():
+        na = cc.dec_a.weight.norm(dim=0).cpu().numpy().astype(np.float64)
+        nb = cc.dec_b.weight.norm(dim=0).cpu().numpy().astype(np.float64)
+    act = Z.mean(0).astype(np.float64)
+    fire = (Z != 0).mean(0).astype(np.float64)
+    fvar = Z.var(0).astype(np.float64)
+    return {"activity": act, "firing_rate": fire, "latent_var": fvar,
+            "var_a": (na ** 2) * fvar, "var_b": (nb ** 2) * fvar,
+            "var_total": (na ** 2 + nb ** 2) * fvar}

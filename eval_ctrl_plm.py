@@ -22,6 +22,8 @@ import torch
 
 from model_ctrl_esmc import CtrlESMC
 from train_sae import compute_norm_scale, train_sae, extract_sae_features
+from sae_variants import (ACTIVATIONS, FREEZE_MODES, train_variant_sae,
+                          encode_all_variant, val_ev_variant)
 
 
 def effective_rank(X: np.ndarray):
@@ -142,6 +144,10 @@ def main():
                          "activations. C1 flagged the MLM SAEs as degenerate at shallow "
                          "depths; this is the controlled-experiment version of the ESM-2/RITA "
                          "A2 fix, applied identically to both arms.")
+    # C7/A8: frozen-component null baselines + architecture robustness on the CONTROLLED pair.
+    ap.add_argument("--activation", default="topk", choices=list(ACTIVATIONS))
+    ap.add_argument("--freeze", default="none", choices=list(FREEZE_MODES),
+                    help="null baseline: does a RANDOM dictionary reproduce the effect?")
     args = ap.parse_args()
 
     dev, sdev = pick_device(args.device), pick_device(args.sae_device)
@@ -194,14 +200,25 @@ def main():
     torch.manual_seed(args.sae_seed)
     np.random.seed(args.sae_seed)
     print(f"SAE seed {args.sae_seed} (expansion={args.expansion}, k={args.k_sparse}, k_aux=64)")
-    sae = train_sae((X[tr_rows] * norm_scale).astype(np.float32), input_dim=D,
-                    device=sdev, epochs=args.sae_epochs,
-                    expansion=args.expansion, k_sparse=args.k_sparse, k_aux=64)
+    Xs = (X * norm_scale).astype(np.float32)
+    variant = (args.activation != "topk") or (args.freeze != "none")
+    if variant:
+        print(f"VARIANT: activation={args.activation} freeze={args.freeze}")
+        sae = train_variant_sae(Xs[tr_rows], input_dim=D, device=sdev, epochs=args.sae_epochs,
+                                expansion=args.expansion, k_sparse=args.k_sparse, k_aux=64,
+                                activation=args.activation, freeze=args.freeze,
+                                seed=args.sae_seed)
+    else:
+        sae = train_sae(Xs[tr_rows], input_dim=D, device=sdev, epochs=args.sae_epochs,
+                        expansion=args.expansion, k_sparse=args.k_sparse, k_aux=64)
 
     out = Path(args.out_root) / args.name / f"layer_{args.layer}"
     out.mkdir(parents=True, exist_ok=True)
-    Z, _ = extract_sae_features(sae, (X * norm_scale).astype(np.float32),
-                                device=sdev, save_dir=str(out))
+    if variant:
+        Z = encode_all_variant(sae, Xs, device=sdev)
+        np.save(out / "D.npy", sae.decoder.weight.detach().cpu().numpy().T.astype(np.float16))
+    else:
+        Z, _ = extract_sae_features(sae, Xs, device=sdev, save_dir=str(out))
 
     # SAE-VALIDITY diagnostic (the check whose absence invalidated the earlier pilot):
     # val_EV >= 0.99 == degenerate basis; effective rank tells whether the two arms'
@@ -210,7 +227,8 @@ def main():
     for i in range(len(uids)):
         if is_val[i]:
             val_rows[offsets[i]:offsets[i] + lengths[i]] = True
-    ev = sae_val_ev(sae, X[val_rows] * norm_scale, sdev) if val_rows.any() else float("nan")
+    ev = ((val_ev_variant(sae, Xs[val_rows], device=sdev) if variant
+           else sae_val_ev(sae, Xs[val_rows], sdev)) if val_rows.any() else float("nan"))
     rank = effective_rank(X)
     print(f"val_EV {ev:.4f}{'  <-- DEGENERATE (>=0.99)' if ev >= 0.99 else ''} | "
           f"eff.rank PR {rank['participation_ratio']:.1f} eRank {rank['entropy_erank']:.1f} / {D}d")
@@ -230,6 +248,8 @@ def main():
         "ckpt": args.ckpt, "ckpt_tokens": int(ck.get("tokens", 0)),
         "causal": cfg["causal"], "anchor": "ESM-C (esm==3.2.3 TransformerStack)",
         "sae_seed": args.sae_seed,
+        "activation": args.activation, "freeze": args.freeze,
+        "is_null_baseline": bool(args.freeze != "none"),
         "val_EV": float(ev), "degenerate": bool(ev >= 0.99),
         "participation_ratio": rank["participation_ratio"],
         "entropy_erank": rank["entropy_erank"],
