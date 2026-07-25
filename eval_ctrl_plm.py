@@ -136,6 +136,12 @@ def main():
     ap.add_argument("--k-sparse", type=int, default=256)    # paper: k=256
     ap.add_argument("--sae-seed", type=int, default=42,
                     help="SAE init seed; paper's main grid is 42 (43/44 = robustness)")
+    ap.add_argument("--per-token-norm", action="store_true",
+                    help="RMS-normalise each residue to ||x||=sqrt(D) BEFORE the SAE "
+                         "(Templeton 2024) — the instrument fix for token-level massive "
+                         "activations. C1 flagged the MLM SAEs as degenerate at shallow "
+                         "depths; this is the controlled-experiment version of the ESM-2/RITA "
+                         "A2 fix, applied identically to both arms.")
     args = ap.parse_args()
 
     dev, sdev = pick_device(args.device), pick_device(args.sae_device)
@@ -159,6 +165,20 @@ def main():
                                meta["bos"], meta["eos"], meta["pad"], dev)
     D = X.shape[1]
     print(f"extracted X {X.shape}")
+
+    if args.per_token_norm:
+        # RMS-normalise each residue to ||x|| = sqrt(D). Same verified pattern as
+        # experiment_outlier_control.py: X is a fresh np.concatenate (writable, not a
+        # read-only mmap), and the RHS allocates a new array before assignment, so the
+        # in-place update is safe. Applied to ALL rows (train+val) since it is a per-row
+        # transform that fits no cross-token statistic (no leakage).
+        for i in range(0, X.shape[0], 20000):
+            xb = X[i:i + 20000]
+            nrm = np.linalg.norm(xb, axis=1, keepdims=True)
+            nrm[nrm == 0] = 1.0
+            X[i:i + 20000] = (xb / nrm * np.sqrt(D)).astype(X.dtype)
+        print(f"per-token RMS-normalised to sqrt(D)={np.sqrt(D):.1f} "
+              f"(mean row-norm now {np.linalg.norm(X[:2000], axis=1).mean():.1f})")
 
     offsets = np.concatenate([[0], np.cumsum(lengths)[:-1]]).astype(np.int64)
     is_val = np.array([u in val_uids for u in uids], dtype=bool)
@@ -204,6 +224,7 @@ def main():
     torch.save(sae.state_dict(), out / "sae_model.pt")
     (out / "META.json").write_text(json.dumps({
         "model": args.name, "layer": args.layer, "embed_dim": D,
+        "per_token_norm": bool(args.per_token_norm),
         "sae_hidden_dim": D * args.expansion, "k_sparse": args.k_sparse,
         "norm_scale": norm_scale, "val_uids": sorted(val_uids & set(uids)),
         "ckpt": args.ckpt, "ckpt_tokens": int(ck.get("tokens", 0)),
