@@ -30,6 +30,18 @@
 #   N_BOOT=200 bash run_c2_pertoken.sh      # quicker, wider CIs
 set -u
 cd "$(dirname "$0")"
+
+# Stamp the running code's version into the log. `git pull` is a purely local operation, so
+# there is no way to tell from GitHub which revision a collaborator is actually running — this
+# makes every log self-identifying, so "did you pull?" is answered by any output they send back.
+_REV=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+_DIRTY=$(git diff --quiet 2>/dev/null && echo "" || echo " +local-changes")
+echo "########## repo revision: ${_REV}${_DIRTY} | $(date) ##########"
+if [ "$_REV" != "unknown" ] && ! git merge-base --is-ancestor 60fca90 HEAD 2>/dev/null; then
+  echo "!! WARNING: this revision PREDATES commit 60fca90, which fixes a cleanup bug that can"
+  echo "!! delete results it never verified. Run 'git pull' before this finishes. Pulling"
+  echo "!! mid-run is safe — the scripts skip work that is already done."
+fi
 PY="${PY:-python}"
 DATA="${DATA:-$HOME/own_sae_data/uniref50_pilot}"
 OUT="${OUT:-outputs_ctrl}"
