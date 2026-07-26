@@ -2,17 +2,66 @@
 
 ## 👉 START HERE
 
-**Already ran this once (thank you!)? You're set up — skip Steps 1–5.** Just `git pull`, then
-do these, in this order:
+## ⚠️ FIRST: `git pull` before you run ANYTHING
 
-1. **[The 15-minute validity check](#one-extra-15-min-run-if-you-still-have-the-checkpoints)** —
-   uses the models you already trained. Quick and important.
-2. **[The token ablation](#-next-experiment-the-token-ablation-this-is-the-one-we-need-now)** —
-   ~50 h, runs in the background.
-3. **[The C2 instrument fix](#-c2-the-instrument-fix)** — a few hours, analysis only.
-4. **[The crosscoder](#-the-crosscoder-shared-vs-objective-specific-features)** — the newest
-   experiment, ~2–4 h, analysis only. This is the one that answers a question the previous
-   runs structurally *could not*.
+```bash
+cd <this repo> && git pull
+```
+
+An audit on 2026-07-25 found a bug in the cleanup step of `run_full_ctrl.sh` and
+`run_c2_pertoken.sh`. It checked that *some* results were safely computed, then deleted the big
+intermediate files for **everything**, including runs it had never checked. If you ran the
+multi-seed job with the old version it would have finished by deleting the intermediate files for
+your existing seed-42 results — which cannot be regenerated, because the scripts see the finished
+output and skip the step that would recreate them. Fixed: each cleanup now deletes only what it
+actually verified, and prints how many files it deliberately kept. Nothing else about how you run
+these changed.
+
+---
+
+## 👉 WHAT TO RUN, IN THIS ORDER
+
+Two jobs, back to back. Everything else is on hold.
+
+```bash
+git pull
+
+# 1. a few hours — analysis only, no training
+bash run_c2_pertoken.sh
+
+# 2. ~1-2 days — TRAINS MODELS. The most important run in the project.
+PROTOCOLS="token" SEEDS="43 44" bash run_full_ctrl.sh
+```
+
+Run **1 first** even though 2 is more important: the GPU does one thing at a time, and 1 finishes
+in an evening, so doing it first gets us that answer ~30 hours sooner while delaying 2 by only a
+few hours.
+
+**Why 2 matters more than anything else here.** Right now there is exactly one masked model and
+one causal model. Every difference we report compares two individual training runs, so we cannot
+tell a real effect from ordinary run-to-run variation. Two more seeds per arm turns that into an
+actual experiment. `PROTOCOLS="token"` halves the work by running only the headline comparison —
+the other protocol was already checked at seed 42.
+
+Both are resumable and skip finished work, so interrupt them freely and just re-run.
+
+**Please don't run these yet:** `run_ctrl_rigor.sh` stages 1/2/4/5 and `run_crosscoder_ctrl.sh`.
+They use code written in the last two days that is still being validated on Wei's machine. He'll
+tell you when.
+
+**And please keep `~/own_sae_data/`.** Those trained checkpoints are what everything reuses.
+
+---
+
+<details>
+<summary>Older experiments (already done — kept for reference)</summary>
+
+1. [The 15-minute validity check](#one-extra-15-min-run-if-you-still-have-the-checkpoints) ✅
+2. [The token ablation](#-next-experiment-the-token-ablation-this-is-the-one-we-need-now) ✅
+3. [The C2 instrument fix](#-c2-the-instrument-fix) — this is job 1 above
+4. [The crosscoder](#-the-crosscoder-shared-vs-objective-specific-features) — on hold
+
+</details>
 
 Also: **please don't delete `~/own_sae_data/`** — those trained models are what everything
 below reuses.
