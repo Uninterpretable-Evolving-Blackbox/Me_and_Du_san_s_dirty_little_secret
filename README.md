@@ -51,6 +51,50 @@ tell you when.
 
 **And please keep `~/own_sae_data/`.** Those trained checkpoints are what everything reuses.
 
+### What to expect, and when to ping me
+
+So nothing surprises you — job 2 in particular is much bigger than anything you've run recently.
+
+| | job 1 (`run_c2_pertoken.sh`) | job 2 (`run_full_ctrl.sh`) |
+|---|---|---|
+| trains models? | **no** — analysis only | **yes**, 4 models |
+| wall clock | a few hours | **~1–2 days** |
+| GPU busy | intermittently | ~45 min per model, then mostly **CPU** |
+| peak disk | ~15 GB, freed at the end | **~56 GB**, freed at the end |
+
+**Two things that look like failure but aren't.**
+
+1. **Long silences with the GPU idle.** Most of the time is the structural-locality metric and
+   the confidence intervals, which are CPU-only and single-line-per-cell. Ten to thirty quiet
+   minutes is normal. `nvidia-smi` showing 0% does not mean it died — check the log timestamp.
+2. **Disk climbing to ~56 GB.** Intermediates are held until the very end because the confidence
+   intervals need them, then deleted in one go. If you're tight on space, tell me before starting
+   rather than during.
+
+**Please ping me at these three points:**
+
+```bash
+# (a) ~1 hour into job 2 — just so we catch a misconfiguration on day 1, not day 2
+tail -5 train.log
+
+# (b) when job 1 finishes
+tar czf c2_results.tgz $(find outputs_ctrl -name 'struct_seq_metrics.csv' -o -name 'META.json' | grep ctrl_) \
+    results_concept_f1 outputs_robustness/bootstrap_h1_c2_*.csv
+
+# (c) when job 2 finishes
+tar czf ctrl_seeds.tgz $(find outputs_ctrl -name 'struct_seq_metrics.csv' -o -name 'META.json') \
+    results_concept_f1 outputs_robustness/bootstrap_h1_ctrl_esmc_s4*.csv train.log
+```
+
+Both tarballs are a few MB — the big files stay on your machine. Each script also prints its own
+`Send back` list when it finishes, so if the commands above drift, trust the script's version.
+
+If anything errors, send the last ~50 lines of the log plus:
+
+```bash
+python -c "import torch;print(torch.__version__, torch.version.cuda, torch.cuda.get_device_name(0))"
+```
+
 ---
 
 <details>
