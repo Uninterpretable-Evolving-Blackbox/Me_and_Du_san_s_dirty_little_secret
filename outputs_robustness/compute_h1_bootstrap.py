@@ -280,6 +280,40 @@ def run_bootstrap(c_esm, c_rita, weights):
     return d_boot
 
 
+def run_bootstrap_twoway(c_esm, c_rita, weights, rng):
+    """TWO-WAY cluster bootstrap: resample protein clusters AND features.
+
+    WHY THIS EXISTS. `run_bootstrap` resamples proteins only, then computes
+    cohens_d over the ~10k per-feature struct_delta values as if they were
+    independent observations. They are not: SAE features share decoder weights
+    and are correlated, so the reported interval is CONDITIONAL on the feature
+    set and is too narrow (caveat 4 in this file's header). This function adds
+    the missing source of variance instead of only disclosing it.
+
+    WHY FEATURES ARE RESAMPLED INDEPENDENTLY PER ARM. The two models have
+    separate dictionaries with no feature correspondence — feature 7 of the ESM-2
+    SAE and feature 7 of the RITA SAE are unrelated objects. The cross-model d is
+    a TWO-SAMPLE statistic over two feature populations, so each arm is resampled
+    to its own size from its own population. Sharing one index vector would
+    impose a correspondence that does not exist.
+
+    Report this interval ALONGSIDE the protein-only one, never instead of it:
+    they answer different questions (generalisation to new proteins vs. to new
+    proteins AND a new dictionary).
+    """
+    n_boot = weights.shape[0]
+    n_feat_e = int(c_esm["sigma_j"].shape[0])
+    n_feat_r = int(c_rita["sigma_j"].shape[0])
+    d_boot = np.empty(n_boot, dtype=np.float64)
+    for b in range(n_boot):
+        sd_e = struct_delta_under_weights(c_esm,  weights[b])
+        sd_r = struct_delta_under_weights(c_rita, weights[b])
+        fe = rng.integers(0, n_feat_e, size=n_feat_e)
+        fr = rng.integers(0, n_feat_r, size=n_feat_r)
+        d_boot[b] = cohens_d(sd_e[fe], sd_r[fr])
+    return d_boot
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--preset", choices=sorted(PAIR_PRESETS), default="esm_rita",
@@ -296,6 +330,12 @@ def main():
                     help="comma-separated subset of depth labels, or 'all'")
     ap.add_argument("--min-active", type=int, default=MIN_ACTIVE,
                     help="drop (protein, feature) pairs with fewer than this many active residues")
+    ap.add_argument("--feature-bootstrap", action="store_true",
+                    help="ALSO compute a two-way (cluster x feature) bootstrap and emit "
+                         "*_2way columns alongside the protein-only ones. Addresses this "
+                         "file's caveat 4: SAE features are correlated, so the protein-only "
+                         "interval is conditional on the feature set and too narrow. Roughly "
+                         "doubles runtime.")
     ap.add_argument("--cluster-levels", default="fold,protein",
                     help="comma-separated resampling units from {protein,fold,superfamily,family}; "
                          "all are computed in ONE run sharing the (expensive) adjacency build. "
@@ -421,20 +461,48 @@ def main():
             ci_full = np.percentile(d_boot_full, [2.5, 97.5])
             ci_val  = np.percentile(d_boot_val,  [2.5, 97.5])
             de = design_effect(_per_prot, cluster_ids[lvl], full_indices)
-            rows_full.append(dict(
+            row_full = dict(
                 rel_depth=f"{label}%", layer_pair=layer_pair, cluster_level=lvl,
                 model_a=model_a, model_b=model_b, preset=args.preset,
                 d_point=d_full_pt, ci_low=ci_full[0], ci_high=ci_full[1],
                 frac_pos=float((d_boot_full > 0).mean()), n_proteins_used=n_proteins,
                 d_boot_mean=float(d_boot_full.mean()), d_boot_sd=float(d_boot_full.std(ddof=1)),
                 icc=de["icc"], design_effect=de["design_effect"],
-                n_eff=de["n_eff"], n_clusters=de["n_clusters"]))
-            rows_val.append(dict(
+                n_eff=de["n_eff"], n_clusters=de["n_clusters"])
+            row_val = dict(
                 rel_depth=f"{label}%", layer_pair=layer_pair, cluster_level=lvl,
                 model_a=model_a, model_b=model_b, preset=args.preset,
                 d_point=d_val_pt, ci_low=ci_val[0], ci_high=ci_val[1],
                 frac_pos=float((d_boot_val > 0).mean()), n_proteins_used=int(len(val_indices)),
-                d_boot_mean=float(d_boot_val.mean()), d_boot_sd=float(d_boot_val.std(ddof=1))))
+                d_boot_mean=float(d_boot_val.mean()), d_boot_sd=float(d_boot_val.std(ddof=1)))
+
+            if args.feature_bootstrap:
+                # Fresh generator per (depth, level) so the two-way numbers are
+                # reproducible independently of how many depths ran before.
+                rng_f = np.random.default_rng(20260727 + 1000 * len(rows_full))
+                d2_full = run_bootstrap_twoway(c_a, c_b, boot_w_full[lvl], rng_f)
+                d2_val = run_bootstrap_twoway(c_a, c_b, boot_w_val[lvl], rng_f)
+                ci2_f = np.percentile(d2_full, [2.5, 97.5])
+                ci2_v = np.percentile(d2_val, [2.5, 97.5])
+                row_full.update(ci_low_2way=ci2_f[0], ci_high_2way=ci2_f[1],
+                                d_boot_mean_2way=float(d2_full.mean()),
+                                d_boot_sd_2way=float(d2_full.std(ddof=1)),
+                                frac_pos_2way=float((d2_full > 0).mean()),
+                                ci_width_ratio_2way=float((ci2_f[1] - ci2_f[0]) /
+                                                          max(ci_full[1] - ci_full[0], 1e-12)))
+                row_val.update(ci_low_2way=ci2_v[0], ci_high_2way=ci2_v[1],
+                               d_boot_mean_2way=float(d2_val.mean()),
+                               d_boot_sd_2way=float(d2_val.std(ddof=1)),
+                               frac_pos_2way=float((d2_val > 0).mean()),
+                               ci_width_ratio_2way=float((ci2_v[1] - ci2_v[0]) /
+                                                         max(ci_val[1] - ci_val[0], 1e-12)))
+                print(f"  [{lvl:11s}] 2-WAY  full CI=[{ci2_f[0]:+.4f},{ci2_f[1]:+.4f}] "
+                      f"(x{row_full['ci_width_ratio_2way']:.2f} wider) "
+                      f"fracpos={(d2_full>0).mean():.3f}"
+                      f"{'  <-- CROSSES ZERO' if ci2_f[0] <= 0 <= ci2_f[1] else ''}")
+
+            rows_full.append(row_full)
+            rows_val.append(row_val)
             sd_per_depth_full[(label, lvl)] = d_boot_full
             sd_per_depth_val[(label, lvl)] = d_boot_val
             print(f"  [{lvl:11s}] full d_pt={d_full_pt:+.4f} dbar={d_boot_full.mean():+.4f} "
