@@ -25,7 +25,7 @@ Usage:
   python cpu_stage.py --layer-dir outputs/esm2/layer_16 --model-type residue --sweep-topk
 """
 
-import os, json, shutil, argparse, warnings
+import os, json, shutil, argparse, warnings, time
 from pathlib import Path
 
 import numpy as np
@@ -578,6 +578,226 @@ def build_neighbor_graphs_residue_parallel(uids, res_lengths, ref_seqs, pdb_dir:
     return seq_adj, struct_adj
 
 
+# ===========================================================================
+#   DIRECTIONAL SPLIT — the mechanism test for MLM vs CLM
+# ===========================================================================
+#
+# A causal model's representation at residue i cannot depend on any token after
+# i. So a contact (i, j) with j > i is information the CLM structurally cannot
+# have at i, while the MLM can. A contact with j < i is available to both.
+#
+# PREDICTION, tied directly to the manipulated variable (the attention mask):
+#   the MLM advantage is LARGER on downstream contacts than on upstream ones.
+#
+# WITHIN-RUN CONTROL: the identical split is applied to the SEQUENTIAL graph
+# (-2,-1 vs +1,+2). A generic "MLM is better at forward-looking things" effect
+# appears in both splits; a specifically STRUCTURAL mechanism appears only in
+# the contact split. Report the interaction, not the raw directional numbers.
+#
+# FALSIFIES the bidirectionality explanation if the MLM advantage is symmetric.
+#
+# ---------------------------------------------------------------------------
+# READ THIS BEFORE INTERPRETING UP-vs-DOWN WITHIN A SINGLE MODEL.
+# `_cohens_d_vectorized` takes its global mean over ALL residues, including
+# those with degree 0 (which contribute a smoothed value of 0). Splitting a
+# graph by direction leaves many more residues with degree 0 — early residues
+# have few upstream contacts, late residues few downstream — so the up and down
+# scores are NOT on a common scale and their difference within one model is
+# partly a degree artifact.
+#
+# This does not affect the experiment. The contact graph is a property of the
+# PROTEIN, so it is byte-identical across the two models being compared. The
+# quantity of interest is therefore the INTERACTION
+#       (MLM - CLM | downstream) - (MLM - CLM | upstream)
+# in which the degree artifact cancels. Never report up-vs-down within one arm
+# as though it were a structural fact.
+# ===========================================================================
+
+def _split_adj_by_direction(p_list, offset, Lr):
+    """Split one protein's adjacency list into (upstream, downstream) sublists.
+
+    Partner indices are GLOBAL (already offset); the comparison is against this
+    residue's own global index, so the split is exact.
+
+    Every edge lands in exactly one of the two graphs from each endpoint's point
+    of view, so up + down reconstructs the original graph edge-for-edge.
+    """
+    up = [[] for _ in range(Lr)]
+    down = [[] for _ in range(Lr)]
+    for r in range(Lr):
+        i_global = offset + r
+        for j in p_list[r]:
+            (down if j > i_global else up)[r].append(j)
+    return up, down
+
+
+def _process_single_protein_graph_directional(uid, Lr, ref_seq, pdb_dir, offset,
+                                              contact_cutoff=8.0, seq_gap_min=12):
+    """Directional graphs for one protein.
+
+    Delegates to `_process_single_protein_graph` and splits its output, so the
+    contact set is IDENTICAL to the non-directional pipeline by construction —
+    no duplicated PDB parsing or alignment logic that could drift.
+    """
+    p_seq, p_struct = _process_single_protein_graph(
+        uid, Lr, ref_seq, pdb_dir, offset, contact_cutoff, seq_gap_min)
+    seq_up, seq_down = _split_adj_by_direction(p_seq, offset, int(Lr))
+    str_up, str_down = _split_adj_by_direction(p_struct, offset, int(Lr))
+    return p_seq, p_struct, seq_up, seq_down, str_up, str_down
+
+
+def build_directional_graphs_residue_parallel(uids, res_lengths, ref_seqs, pdb_dir: Path,
+                                              n_jobs=-1, contact_cutoff=8.0, seq_gap_min=12):
+    """Adjacency lists for all six graphs, keyed by name.
+
+    Returns an ordered dict: seq, struct (the originals, for the self-check) and
+    seq_up, seq_down, struct_up, struct_down.
+    """
+    pdb_dir = Path(pdb_dir)
+    offsets, off = [], 0
+    for Lr in res_lengths:
+        offsets.append(off); off += int(Lr)
+    print(f"  Building DIRECTIONAL neighbor graphs for {len(uids)} proteins using {n_jobs} workers...")
+    print(f"    Contact cutoff: {contact_cutoff} Å, Sequence gap: ≥{seq_gap_min} residues")
+    results = Parallel(n_jobs=n_jobs, verbose=5)(
+        delayed(_process_single_protein_graph_directional)(
+            uid, Lr, ref_seqs[uid], pdb_dir, offset, contact_cutoff, seq_gap_min)
+        for uid, Lr, offset in zip(uids, res_lengths, offsets))
+
+    names = ("seq", "struct", "seq_up", "seq_down", "struct_up", "struct_down")
+    adj = {n: [] for n in names}
+    for per_protein in results:
+        for n, lst in zip(names, per_protein):
+            adj[n].extend(lst)
+    return adj
+
+
+def _process_named_graph_chunk(chunk_idx, chunk_size, Z, A_proj, graph_items,
+                               perm_indices, n_features, topk_frac):
+    """Chunk worker for an arbitrary set of named graphs.
+
+    `graph_items` is a list of (name, A_sparse, degree). Mirrors
+    `_process_struct_seq_chunk_v3` exactly — same activation loading, same
+    per-feature std, same shuffle averaging — but generalised over N graphs so
+    the directional variants share one pass over the activations.
+    """
+    i = chunk_idx * chunk_size
+    end = min(i + chunk_size, n_features)
+
+    if A_proj is None:
+        acts = np.asarray(Z[:, i:end], dtype=np.float32)
+    else:
+        acts = np.asarray(A_proj @ np.asarray(Z[:, i:end], dtype=np.float32), dtype=np.float32)
+
+    gstds = np.std(acts, axis=0).astype(np.float32)
+    cs = end - i
+
+    obs = {n: _cohens_d_vectorized(acts, A, deg, gstds, topk_frac)
+           for n, A, deg in graph_items}
+
+    sh = {n: np.zeros(cs, dtype=np.float32) for n, _, _ in graph_items}
+    for perm in perm_indices:
+        acts_p = acts[perm]
+        for n, A, deg in graph_items:
+            sh[n] += _cohens_d_vectorized(acts_p, A, deg, gstds, topk_frac)
+    if perm_indices:
+        for n in sh:
+            sh[n] /= len(perm_indices)
+
+    return np.arange(i, end, dtype=np.int32), obs, sh
+
+
+def analyze_struct_seq_directional(Z, A_proj, uids, res_lengths, ref_seqs,
+                                   pdb_dir: Path, save_dir: Path,
+                                   n_shuffles: int, n_jobs=-1,
+                                   contact_cutoff=8.0, seq_gap_min=12,
+                                   topk_frac=0.10):
+    """Directional L_struct. Writes `struct_seq_directional.csv`.
+
+    Deliberately writes to its OWN file and never touches struct_seq_metrics.csv,
+    so enabling this cannot perturb any existing result. The `seq_delta` and
+    `struct_delta` columns it emits are computed from the full (unsplit) graphs
+    and should reproduce the main pipeline exactly — that agreement is printed
+    as a self-check.
+    """
+    save_dir = Path(save_dir)
+    n_res = int(np.sum(res_lengths))
+
+    adj = build_directional_graphs_residue_parallel(
+        uids, res_lengths, ref_seqs, pdb_dir, n_jobs,
+        contact_cutoff=contact_cutoff, seq_gap_min=seq_gap_min)
+
+    t0 = time.time()
+    print("  Converting 6 adjacency lists → sparse matrices...")
+    graphs = {}
+    for name, lst in adj.items():
+        graphs[name] = adj_list_to_sparse(lst, n_res)
+    del adj
+    for name, (A, _) in graphs.items():
+        print(f"    {name:<12} {A.nnz:,} edges")
+    # Structural invariant: the split must partition the parent graph exactly.
+    for parent, up, down in (("seq", "seq_up", "seq_down"),
+                             ("struct", "struct_up", "struct_down")):
+        tot = graphs[up][0].nnz + graphs[down][0].nnz
+        if tot != graphs[parent][0].nnz:
+            raise ValueError(f"directional split lost edges: {parent} {graphs[parent][0].nnz} "
+                             f"!= {up}+{down} {tot}")
+    print(f"    split verified (up + down == parent for both graphs); {time.time()-t0:.1f}s")
+
+    print(f"  Pre-computing {n_shuffles} within-protein permutations...")
+    perm_indices = build_protein_permutations(res_lengths, n_shuffles)
+
+    n_features = int(Z.shape[1])
+    chunk_size = 256
+    # 6 graphs share one activation load, but each holds its own smoothed copy.
+    mem_per_worker = n_res * chunk_size * 4 * 9 / 1e9
+    mem_budget_gb = float(os.environ.get("CPU_STAGE_MEM_GB", 100.0))
+    max_safe_jobs = max(1, int(mem_budget_gb / max(mem_per_worker, 0.1)))
+    effective_jobs = min(n_jobs if n_jobs > 0 else cpu_count(), max_safe_jobs)
+
+    graph_items = [(n, A, deg) for n, (A, deg) in graphs.items()]
+    n_chunks = (n_features + chunk_size - 1) // chunk_size
+    print(f"  Directional locality for {n_features} features ({n_chunks} chunks), "
+          f"{len(graph_items)} graphs, {effective_jobs} workers...")
+
+    results = Parallel(n_jobs=effective_jobs, verbose=5)(
+        delayed(_process_named_graph_chunk)(
+            ci, chunk_size, Z, A_proj, graph_items, perm_indices, n_features, topk_frac)
+        for ci in range(n_chunks))
+
+    all_idx = np.concatenate([r[0] for r in results])
+    order = np.argsort(all_idx)
+    out = {"feature_idx": all_idx[order].astype(np.int32)}
+    for name, _, _ in graph_items:
+        o = np.concatenate([r[1][name] for r in results])
+        s = np.concatenate([r[2][name] for r in results])
+        out[f"{name}_effect_obs"] = o[order]
+        out[f"{name}_effect_shuffle"] = s[order]
+        out[f"{name}_delta"] = (o - s)[order]
+    df = pd.DataFrame(out)
+    df.to_csv(save_dir / "struct_seq_directional.csv", index=False)
+
+    # Self-check against the main pipeline, if it has already run on this cell.
+    main_csv = save_dir / "struct_seq_metrics.csv"
+    if main_csv.exists():
+        ref = pd.read_csv(main_csv)
+        if len(ref) == len(df):
+            for col in ("seq_delta", "struct_delta"):
+                dmax = float(np.max(np.abs(ref[col].to_numpy() - df[col].to_numpy())))
+                flag = "OK" if dmax < 1e-5 else "MISMATCH"
+                print(f"  self-check vs struct_seq_metrics.csv: max|{col} diff| = {dmax:.2e}  [{flag}]")
+
+    print(f"  mean struct_up_delta   = {df['struct_up_delta'].mean():+.4f}")
+    print(f"  mean struct_down_delta = {df['struct_down_delta'].mean():+.4f}")
+    print(f"  mean seq_up_delta      = {df['seq_up_delta'].mean():+.4f}")
+    print(f"  mean seq_down_delta    = {df['seq_down_delta'].mean():+.4f}")
+    print(f"  -> saved struct_seq_directional.csv")
+    print("  NOTE: compare ACROSS MODELS within a direction, and report the")
+    print("        (MLM-CLM | down) - (MLM-CLM | up) interaction. Up-vs-down")
+    print("        within one model is confounded by degree (see module header).")
+    return df
+
+
 def analyze_struct_seq_residue_parallel(Z, A_proj, uids, res_lengths, ref_seqs,
                                         pdb_dir: Path, save_dir: Path,
                                         n_shuffles: int, n_jobs=-1,
@@ -925,6 +1145,11 @@ def main():
                     help="Min sequence separation (residues)")
     ap.add_argument("--topk-frac", type=float, default=DEFAULT_TOPK_FRAC,
                     help="Fraction of residues considered 'active' per feature")
+    ap.add_argument("--split-direction", choices=["none", "updown"], default="none",
+                    help="additionally split BOTH neighbour graphs by partner direction "
+                         "(upstream j<i / downstream j>i) and write struct_seq_directional.csv. "
+                         "The mechanism test for MLM vs CLM: a causal model cannot see j>i. "
+                         "Does not modify struct_seq_metrics.csv.")
     ap.add_argument("--sweep-topk", action="store_true",
                     help="Run topk sensitivity sweep")
     ap.add_argument("--sweep-n-proteins", type=int, default=500,
@@ -983,6 +1208,14 @@ def main():
         args.n_shuffles, n_jobs=n_jobs,
         contact_cutoff=args.contact_cutoff, seq_gap_min=args.seq_gap_min,
         topk_frac=args.topk_frac)
+
+    if args.split_direction == "updown":
+        print("\n[3b/6] Directional locality (upstream vs downstream contacts)...")
+        analyze_struct_seq_directional(
+            Z, A, uids, res_lengths, ref_seqs, Path(args.pdb_dir), layer_dir,
+            args.n_shuffles, n_jobs=n_jobs,
+            contact_cutoff=args.contact_cutoff, seq_gap_min=args.seq_gap_min,
+            topk_frac=args.topk_frac)
 
     print("\n[4/6] UMAP on decoder dictionary...")
     D_path = layer_dir / "D.npy"

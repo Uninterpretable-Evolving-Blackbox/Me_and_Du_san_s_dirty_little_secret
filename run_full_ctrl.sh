@@ -54,7 +54,10 @@ D_MODEL=320; N_HEADS=5; N_LAYERS=30       # ESM-C: head_dim 64, depth 30
 # 30 blocks (index/29, same convention as the paper's ESM-2 L0..L32 => index/32).
 DEPTHS="0 4 7 11 14 18 22 26 29"
 BOOT_DEPTHS="all"                         # depth labels for the bootstrap (see preset)
-BOOT_STEM_PREFIX="bootstrap_h1_ctrl_esmc" # smoke uses a distinct namespace below
+# Overridable so a SIDE EXPERIMENT (e.g. the residue-shuffled control) cannot write
+# over the real run's bootstrap CSVs. With SEEDS="42" PROTOCOLS="token" the stems are
+# byte-identical to the real ones, so this is a silent-clobber hazard, not a nicety.
+BOOT_STEM_PREFIX="${BOOT_STEM_PREFIX:-bootstrap_h1_ctrl_esmc}"  # smoke overrides below
 N_SHUFFLES=5                              # paper: "5 within-protein permutations"
 # -------------------------------------------------------------------
 
@@ -132,7 +135,7 @@ analyse_one () {
     # Concept-F1: the second, independent lens (InterPLM-style feature<->concept
     # alignment). It disagreed with L_struct on the previous pilot, so it is worth
     # having in the redo rather than resting the claim on one metric. Also reads Z.
-    local CF="results_concept_f1/$T/layer_$L"
+    local CF="${CF_ROOT:-results_concept_f1}/$T/layer_$L"
     if [ ! -f "$CF/concept_f1.csv" ]; then
       $PY -u experiment_concept_f1.py --layer-dir "$LD" --save-dir "$CF" \
           --features-csv cache/residue_features.csv --fasta-path cache/scope_40.fa \
@@ -210,7 +213,7 @@ prune_z
 echo; echo "########## DONE $(date) ##########"
 echo "Results to send back:"
 find "$OUT" -name struct_seq_metrics.csv 2>/dev/null | sort | sed 's/^/  /'
-find results_concept_f1 -name 'concept_f1.csv' 2>/dev/null | sort | sed 's/^/  /'
+find "${CF_ROOT:-results_concept_f1}" -name 'concept_f1.csv' 2>/dev/null | sort | sed 's/^/  /'
 find outputs_robustness -name "${BOOT_STEM_PREFIX}_s*.csv" 2>/dev/null | sort | sed 's/^/  /'
 echo
 echo "  tar czf ctrl_results.tgz \\"

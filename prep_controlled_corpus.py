@@ -23,6 +23,7 @@ Usage:
 """
 import argparse
 import json
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -76,10 +77,28 @@ def main():
     ap.add_argument("--out-dir", default=str(Path.home() / "own_sae_data" / "uniref50_pilot"))
     ap.add_argument("--shuffle-buffer", type=int, default=50000)
     ap.add_argument("--smoke", action="store_true")
+    ap.add_argument("--shuffle-residues", action="store_true",
+                    help="CONSTRUCT-VALIDITY CONTROL: permute residues WITHIN each sequence "
+                         "before tokenising. Length and amino-acid composition preserved "
+                         "exactly; all sequence order destroyed. Models trained on this corpus "
+                         "are evaluated on the REAL proteins and REAL structures, so L_struct "
+                         "should collapse toward zero. If it does not, L_struct is tracking "
+                         "composition/length/position rather than structure. Writes to a "
+                         "distinct default out-dir so it can never overwrite the real corpus.")
+    ap.add_argument("--shuffle-residues-seed", type=int, default=1234)
     args = ap.parse_args()
+    args.out_dir_explicit = any(a.startswith('--out-dir') for a in sys.argv[1:])
     if args.smoke:
         args.n_sequences, args.shuffle_buffer = 2000, 5000
         args.out_dir = str(Path.home() / "own_sae_data" / "uniref50_smoke")
+    if args.shuffle_residues and not args.out_dir_explicit:
+        # Never share a directory with the real corpus. An explicit --out-dir is honoured.
+        args.out_dir = str(Path.home() / "own_sae_data" /
+                           ("uniref50_smoke_shuf" if args.smoke else "uniref50_pilot_shuf"))
+    shuf_rng = np.random.RandomState(args.shuffle_residues_seed)
+    if args.shuffle_residues:
+        print(f"!! RESIDUE-SHUFFLED CORPUS (seed {args.shuffle_residues_seed}) — "
+              f"construct-validity control, NOT a real corpus\n   -> {args.out_dir}")
 
     from datasets import load_dataset
 
@@ -118,6 +137,14 @@ def main():
             d_aa += 1; continue
         if s in scope:
             d_hold += 1; continue
+        if args.shuffle_residues:
+            # Permute AFTER every filter, so the kept set, the lengths and the
+            # per-sequence composition are identical to the unshuffled corpus — the
+            # ONLY thing that differs is residue order. BOS/EOS are added afterwards
+            # and are never permuted.
+            _a = np.frombuffer(s.encode("ascii"), dtype=np.uint8).copy()
+            shuf_rng.shuffle(_a)
+            s = _a.tobytes().decode("ascii")
         ids = [sp["bos"]] + [aa2id[a] for a in s] + [sp["eos"]]
         tokens.append(np.array(ids, dtype=np.uint8))
         lengths.append(len(ids))
@@ -137,6 +164,9 @@ def main():
                 n_tokens=int(flat.shape[0]), hf_dataset=args.hf_dataset, seq_col=seq_col,
                 dropped=dict(aa=d_aa, length=d_len, holdout=d_hold),
                 tokenizer="esm-c EsmSequenceTokenizer",
+                shuffle_residues=bool(args.shuffle_residues),
+                shuffle_residues_seed=(args.shuffle_residues_seed
+                                       if args.shuffle_residues else None),
                 vocab_size=64,  # ESM-C's embedding slot count: nn.Embedding(64, d_model)
                 **sp)
     (out / "meta.json").write_text(json.dumps(meta, indent=2))
