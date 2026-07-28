@@ -3,7 +3,7 @@
 #
 #   bash run_all_pending.sh
 #
-# ~14-19 h total. Every stage is idempotent and skip-if-done, so interrupting it costs at
+# ~24-27 h total. Every stage is idempotent and skip-if-done, so interrupting it costs at
 # most the cell in flight — re-run the same command and it picks up where it stopped.
 #
 # A FAILING STAGE NEVER STOPS THE QUEUE. Later stages do not depend on earlier ones
@@ -12,7 +12,10 @@
 #
 #   1  mechanism: upstream vs downstream contacts     ~2 h    the only mechanism test we have
 #   2  frozen-dictionary nulls, controlled pair       ~3-5 h  the control that reframed the paper
-#   3  prediction-matched protocol, seeds 43/44       ~1.5 h  closes the last single-seed claim
+#   3  prediction-matched protocol, seeds 43/44       ~12 h   closes the last single-seed claim
+#      (--match-predictions divides steps by mask_rate: 660M/0.15 = 4.4B tokens per MLM
+#       model, ~5.25 h each. Both seeds train from scratch; the CLM arms are shared
+#       across protocols and skip. SKIP="3" if you would rather have the other six first.)
 #   4  contact-definition sweep (cutoff x separation) ~1 h    closes the band question
 #   5  SAE-free readout (probe + contacts)            ~2 h    no SAE anywhere; immune to stage 6
 #   6  L_struct vs SAE capacity                       ~2.5 h  is the EV gap even relevant?
