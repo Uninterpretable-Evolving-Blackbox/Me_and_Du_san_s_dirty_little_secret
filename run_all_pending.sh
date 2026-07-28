@@ -81,8 +81,29 @@ run 3 "prediction-matched protocol, seeds 43/44" \
   env PROTOCOLS=pred SEEDS="43 44" KEEP_Z=1 bash run_full_ctrl.sh
 
 # ---------------------------------------------------------------- 4: contact definition
+# Z.npy is pruned after the main controlled run, and this sweep recomputes struct_delta
+# from Z. Stage 1 happens to regenerate Z at exactly these depths, so in the normal
+# front-to-back order this is already satisfied — but ONLY=4 would then silently produce
+# nothing. Regenerate here too if it is missing; it is a no-op when stage 1 already ran.
+ensure_z () {   # ensure_z <arm> <layer>
+  local arm="$1" L="$2"
+  local LD="$OUT/$arm/layer_$L"
+  [ -f "$LD/Z.npy" ] && return 0
+  local CK="$DATA/$arm/model_final.pt"
+  [ -f "$CK" ] || { echo "  [skip] no $CK"; return 1; }
+  echo "=== [regen Z] $arm L$L $(date +%H:%M:%S) ==="
+  $PY -u eval_ctrl_plm.py --ckpt "$CK" --name "$arm" --layer "$L" \
+      --out-root "$OUT" --eval-set eval_set \
+      --k-sparse "$K_SPARSE" --expansion "$EXPANSION"
+}
+
 stage_contactdef () {
   local rc=0
+  for s in $SEEDS; do
+    for arm in "ckpt_mlm_s${s}_token" "ckpt_clm_s${s}"; do
+      for L in $DEPTHS_HEADLINE; do ensure_z "$arm" "$L" || rc=1; done
+    done
+  done
   for s in $SEEDS; do
     $PY -u experiment_contact_def_sweep.py --root "$OUT" \
         --model-a "ckpt_mlm_s${s}_token" --model-b "ckpt_clm_s${s}" \
