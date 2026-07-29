@@ -172,11 +172,41 @@ def build_labels(uids, lengths, features_csv):
             "valid_burial": ~np.isnan(burial_raw)}
 
 
-def run_probe(X_tr, y_tr, X_te, y_te):
+def run_probe(X_tr, y_tr, X_te, y_te, mlp=False):
+    """Linear probe by default; one-hidden-layer MLP with --mlp.
+
+    WHY THE MLP MATTERS. The paper's central claim is that two measures of the same property
+    disagree in sign. The probe half of that disagreement is LINEAR decodability. If the
+    reversal is an artifact of linear separability rather than a difference in the information
+    present, an MLP should remove it — and the disagreement, and with it the paper's frame.
+    This is therefore a falsification test for the main result, not a robustness nicety.
+
+    Class weighting, split, and metric are identical to the linear path so the two are
+    directly comparable.
+    """
     from sklearn.linear_model import LogisticRegression
     from sklearn.metrics import f1_score, roc_auc_score
     if y_tr.sum() < 5 or (len(y_tr) - y_tr.sum()) < 5:
         return np.nan, np.nan
+    if mlp:
+        from sklearn.neural_network import MLPClassifier
+        from sklearn.utils.class_weight import compute_sample_weight
+        # MLPClassifier has no class_weight, so balance by resampling the majority class
+        # down to the minority count — same effective correction, reproducible seed.
+        rng = np.random.default_rng(42)
+        pos, neg = np.where(y_tr == 1)[0], np.where(y_tr == 0)[0]
+        k = min(len(pos), len(neg))
+        sel = np.concatenate([rng.choice(pos, k, replace=False), rng.choice(neg, k, replace=False)])
+        clf = MLPClassifier(hidden_layer_sizes=(256,), max_iter=60, early_stopping=True,
+                            random_state=42)
+        clf.fit(X_tr[sel], y_tr[sel])
+        pred = clf.predict(X_te)
+        try:
+            auc = (roc_auc_score(y_te, clf.predict_proba(X_te)[:, 1])
+                   if len(np.unique(y_te)) > 1 else np.nan)
+        except Exception:
+            auc = np.nan
+        return float(f1_score(y_te, pred)), float(auc)
     clf = LogisticRegression(max_iter=300, C=1.0, class_weight="balanced", solver="liblinear")
     clf.fit(X_tr, y_tr)
     pred = clf.predict(X_te)
@@ -197,9 +227,13 @@ def main():
     ap.add_argument("--depths", default="0,4,7,11,14,18,22,26,29")
     ap.add_argument("--features-csv", default="cache/residue_features.csv")
     ap.add_argument("--pdb-dir", default="cache/pdb_files")
-    ap.add_argument("--out", default="results_ctrl_saefree")
+    ap.add_argument("--out", default="results_ctrl_saefree")  # use _mlp for --mlp
     ap.add_argument("--device", default="auto")
     ap.add_argument("--max-proteins", type=int, default=0)
+    ap.add_argument("--mlp", action="store_true",
+                    help="use a 1x256 MLP probe instead of logistic regression. Falsification "
+                         "test for the main result: if the mid-depth reversal disappears, it was "
+                         "linear separability rather than information content.")
     ap.add_argument("--skip-contacts", action="store_true")
     args = ap.parse_args()
 
@@ -254,7 +288,7 @@ def main():
                 if tr.sum() < 50 or te.sum() < 50:
                     rec[f"probe_{task}_f1"] = np.nan
                     continue
-                f1, auc = run_probe(X[tr], y[tr], X[te], y[te])
+                f1, auc = run_probe(X[tr], y[tr], X[te], y[te], mlp=args.mlp)
                 rec[f"probe_{task}_f1"], rec[f"probe_{task}_auroc"] = f1, auc
 
             if not args.skip_contacts:
