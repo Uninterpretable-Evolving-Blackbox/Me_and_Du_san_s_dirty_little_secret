@@ -94,22 +94,30 @@ shuffled pair was ever trained. Long; not run by default.
 
 ## Estimated wall time, from your own logs
 
-Grounded in `pending_core_20260729/logs_pending/stage4_*.log`, which ran the 81-cell sweep on the
-same box: 162 parallel blocks summing to **22.5 min** of compute on 32 cores.
+Grounded in `pending_core_20260729/logs_pending/stage4_*.log` (162 parallel blocks, 22.5 min of
+compute on 32 cores for 81 sweep cells) and the measured ~9 min per SAE training.
 
-| stage | work | estimate | note |
-|---|---|---|---|
-| **1** | 18 cells (3 gaps x 3 layers x 2 roots), 1 cutoff | **25–45 min** | gap 1 makes the graph ~4.5x denser than gap 6 (≈1.5M vs 338k edges at 6 Å), so cells are slower than the sweep average |
-| **2** | 2 cells, no SAE training | **< 5 min** | pure re-analysis over existing `Z.npy` |
-| **3** | 54 cells (6 arms x 9 depths), **trains an SAE per cell** | **7–9 h** | at the measured ~9 min/cell for SAE training. The long pole. `--no-ev` gives rank only in minutes if you want a cheap look first |
-| **4** | 6 arms x 9 depths, probes only | **1–2 h** | `--skip-contacts` avoids the killer: contact P@L/5 re-parsed ~150 PDBs and ran a pairwise alignment *per protein per depth*, which is what made the original 27 h |
-| **5** | corpus prep + 4 training runs | **4–5 h** | ~47 min/model at the measured 233k tok/s, plus prep |
+| stage | work | estimate |
+|---|---|---|
+| **0** | rebuild `Z.npy` for 12 cells | **~2 h** |
+| **1** | 18 sweep cells, 1 cutoff x 3 gaps x 3 layers x 2 roots | **25–45 min** |
+| **2** | 2 cells, no SAE training | **< 5 min** |
+| **3** | 54 cells, trains an SAE per cell | **7–9 h** |
+| **4** | 6 arms x 9 depths, probes only | **1–2 h** |
+| **5** | corpus prep + 4 PLM training runs | **4–5 h** |
 
-**Stages 1+2 are under an hour and answer the question the paper actually turns on.** If time is
-short, run those two and stop.
+**Stage 0 is the correction.** `prune_z` deletes `Z.npy` after every pipeline run, so the controlled
+and shuffled trees almost certainly have none, and stage 1 cannot run without it. Rebuilding costs an
+SAE training per cell, so **the real cost of the stage-1 answer is ~2.5–3 h, not 45 min.** An earlier
+version of this file said 25–45 min; that was the sweep alone and it was wrong.
 
-Stage 3 is the one to think about before starting: 7–9 h to move a correlation from n=6 to n=54.
-Worth it before submission, not worth blocking stage 1 on.
+Regeneration is safe and has been done before (`fix_pred_bootstrap.sh`): the SAE seed and the val
+split are both recorded, so it reproduces the same dictionary — last time to the last digit — and it
+does not write `struct_seq_metrics.csv`, so delivered results are untouched.
+
+**If time is short: stages 0, 1 and 2.** About three hours, and they answer the question the paper
+turns on. Stage 3 is the one to decide on deliberately — 7–9 h to move a correlation from n=6 to
+n=54.
 
 ## Traps the script handles for you
 

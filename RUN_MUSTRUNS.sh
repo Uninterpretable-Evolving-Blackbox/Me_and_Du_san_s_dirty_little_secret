@@ -2,7 +2,7 @@
 # ============================================================================
 # RUN_MUSTRUNS.sh — the outstanding experiments, in value order.
 #
-#   bash RUN_MUSTRUNS.sh            # stages 1-4 (no training; hours, not days)
+#   bash RUN_MUSTRUNS.sh            # stages 0-4 (no PLM training; ~10-12 h total)
 #   STAGE=1 bash RUN_MUSTRUNS.sh    # one stage only
 #   STAGE=5 bash RUN_MUSTRUNS.sh    # the long one: two more shuffled training runs
 #
@@ -38,6 +38,48 @@ CTRL_SHUF="${CTRL_SHUF:-outputs_ctrl_shuf}"
 MLM="${MLM:-ckpt_mlm_s42_token}"
 CLM="${CLM:-ckpt_clm_s42}"
 LAYERS="${LAYERS:-11,14,18}"
+
+
+# ---------------------------------------------------------------------------
+# STAGE 0 — rebuild Z.npy where it is missing.  RUN THIS FIRST.
+#
+# WHY: prune_z removes Z.npy after each pipeline run (6-7 GB/cell), so the
+# controlled and shuffled trees almost certainly have none. Stage 1 needs it and
+# will otherwise print "[skip] Z.npy missing" for every layer and produce nothing.
+#
+# SAFETY (same argument as fix_pred_bootstrap.sh, which did this successfully):
+# eval_ctrl_plm.py seeds torch+numpy from --sae-seed immediately before SAE
+# training and reads the val split from META.json, so regeneration reproduces the
+# SAME SAE that produced the existing struct_seq_metrics.csv - last run this came
+# back identical to the last digit. It does NOT write struct_seq_metrics.csv, so
+# delivered results are untouched. META.json IS rewritten deterministically; we
+# back it up first anyway.
+#
+# COST: this retrains an SAE per cell (~9 min). 12 cells ~= 2 h. It is the real
+# cost of stage 1, not the sweep itself.
+# ---------------------------------------------------------------------------
+if [ "$STAGE" = 0 ] || [ "$STAGE" = 1 ]; then
+  say "STAGE 0 — rebuild Z.npy where missing (needed by stage 1)"
+  need=0
+  for spec in "$CTRL_REAL:uniref50_pilot" "$CTRL_SHUF:uniref50_pilot_shuf"; do
+    root="${spec%%:*}"; data="${spec##*:}"
+    for arm in "$MLM" "$CLM"; do
+      for L in ${LAYERS//,/ }; do
+        d="$root/$arm/layer_$L"
+        [ -f "$d/Z.npy" ] && continue
+        need=$((need+1))
+        ck="$HOME/own_sae_data/$data/$arm/model_final.pt"
+        [ -f "$ck" ] || { bad "no checkpoint for $arm in $data - cannot rebuild $d"; continue; }
+        [ -f "$d/META.json" ] && cp "$d/META.json" "$d/META.json.bak.$(date -u +%Y%m%dT%H%M%SZ)"
+        run "s0_${root##*/}_${arm}_L${L}" python eval_ctrl_plm.py \
+          --ckpt "$ck" --name "$arm" --layer "$L" --out-root "$root" \
+          --eval-set eval_set --sae-seed 42 --expansion 8 --k-sparse 256
+      done
+    done
+  done
+  [ "$need" = 0 ] && ok "Z.npy already present everywhere stage 1 needs it"
+  echo "   (rebuilt $need cell(s); struct_seq_metrics.csv was not touched)"
+fi
 
 # ---------------------------------------------------------------------------
 # STAGE 1 — the metric at Simon & Zou's own settings.  HIGHEST VALUE.
