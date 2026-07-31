@@ -13,27 +13,57 @@ Idempotent (skips anything already produced), deletes nothing, logs to `logs_mus
 
 ## Stage 1 — the one that matters most
 
-**Run the metric at Simon & Zou's own settings: 6 Å, no separation floor.**
+**Run the metric with InterPLM's contact definition: 6 Å, no separation floor.**
 
-Our `L_struct` adds a minimum sequence separation (`|i-j| >= 12`) that InterPLM does not use. The
-contact-definition sweep showed that floor carries **81–93%** of the entire effect. So we do not
-currently know whether the shuffled-input failure belongs to the *published recipe* or specifically
-to *our modification of it*.
+### What their method actually is (read off the paper, §5.4.2, verbatim)
 
-The two possible answers are different papers:
+> 1. Identified high-activation regions (>0.6) in proteins with available AlphaFold structures
+> 2. For each protein's **highest-activation residue**, calculated: Sequential clustering: mean
+>    activation within ±2 positions in sequence; Structural clustering: mean activation of residues
+>    **within 6Å in 3D space**
+> 3. Generated null distributions through averaging **5 random permutations** per protein
+> 4. Assessed clustering significance using paired *t*-tests and **Cohen's d** across 100 proteins
+>    per feature
 
-| result at 6 Å / gap 1 | what it means |
+### Where we match them, and where we do not
+
+| | InterPLM | ours |
+|---|---|---|
+| structural cutoff | **6 Å** | 8 Å (Cα–Cα) |
+| **separation floor** | **none** | **≥ 12** |
+| sequential baseline | ±2 | ±1, ±2 |
+| permutations | 5 | 5 |
+| effect size | Cohen's *d* | Cohen's *d* |
+| **anchor** | the **single highest-activation residue** per protein | **all** residues where the feature is active |
+| **activation threshold** | absolute **> 0.6** | top-10% fraction (`topk_frac`) |
+| **unit of test** | per feature, across 100 proteins | pooled across features |
+| structures | AlphaFold | SCOPe / experimental PDB |
+| inclusion | ≥ 25 examples per feature, Bonferroni *p* < 0.05 | ≥ 5 active residues per (feature, protein) |
+
+**So this stage is "our estimator at their contact definition", not "their metric".** The two
+differ in the anchor, the threshold and the unit of test as well as the cutoff. That is worth being
+exact about, because it bounds what the result can be used to say.
+
+### What it does answer, which is the question the paper needs
+
+Our `L_struct` adds a minimum sequence separation that InterPLM does not use, and the sweep showed
+that floor carries **81–93%** of the whole effect. Stage 1 isolates that one variable:
+
+| result at 6 Å / gap 1 | reading |
 |---|---|
-| shuffled/real ≈ 46× | the published recipe fails too — the claim broadens |
-| shuffled/real ≈ 2× | the failure tracks **our** separation floor — the claim narrows, and the finding becomes "making the metric stricter is what made it invalid" |
+| shuffled/real ≈ 46× | the failure survives without our floor — it is a property of the co-activation construction |
+| shuffled/real ≈ 2× | the failure **tracks our separation floor** — "making the metric stricter is what made it invalid" |
 
-My prediction is the second: at 6 Å with no floor, *i*±1 (≈3.8 Å) and most *i*±2 qualify as
-structural neighbours, so their structural measure largely overlaps its own sequential baseline and
-should inherit that baseline's much milder behaviour. **Recording the prediction here so it can't be
-retrofitted after the fact.**
+Prediction, recorded before the run so it cannot be retrofitted: **the second**. At 6 Å with no
+floor, *i*±1 (≈3.8 Å) and most *i*±2 qualify as structural neighbours, so the structural measure
+largely overlaps its own sequential baseline and should inherit that baseline's milder behaviour.
 
-This needed a code change — the sweep hard-coded its grid. `--cutoffs` and `--gaps` are new;
-defaults are unchanged, so every number already delivered reproduces bit-for-bit.
+**What it cannot tell us** is whether InterPLM's own published analysis is affected. That would need
+their estimator too — single anchor, absolute 0.6 threshold, per-feature test over AlphaFold
+structures — which is a separate build and a much larger claim. Not attempted here.
+
+The `--gaps 1,2,12` grid gives their setting (1), a near-neighbour check (2), and our default (12)
+on one axis, so the dose–response is visible in a single CSV.
 
 ## Stage 2 — amino-acid selectivity on the *shuffled* checkpoints
 
@@ -61,6 +91,25 @@ The shuffled control and the `L_seq` positive control are both seed-42-only, bec
 shuffled pair was ever trained. Long; not run by default.
 
 ---
+
+## Estimated wall time, from your own logs
+
+Grounded in `pending_core_20260729/logs_pending/stage4_*.log`, which ran the 81-cell sweep on the
+same box: 162 parallel blocks summing to **22.5 min** of compute on 32 cores.
+
+| stage | work | estimate | note |
+|---|---|---|---|
+| **1** | 18 cells (3 gaps x 3 layers x 2 roots), 1 cutoff | **25–45 min** | gap 1 makes the graph ~4.5x denser than gap 6 (≈1.5M vs 338k edges at 6 Å), so cells are slower than the sweep average |
+| **2** | 2 cells, no SAE training | **< 5 min** | pure re-analysis over existing `Z.npy` |
+| **3** | 54 cells (6 arms x 9 depths), **trains an SAE per cell** | **7–9 h** | at the measured ~9 min/cell for SAE training. The long pole. `--no-ev` gives rank only in minutes if you want a cheap look first |
+| **4** | 6 arms x 9 depths, probes only | **1–2 h** | `--skip-contacts` avoids the killer: contact P@L/5 re-parsed ~150 PDBs and ran a pairwise alignment *per protein per depth*, which is what made the original 27 h |
+| **5** | corpus prep + 4 training runs | **4–5 h** | ~47 min/model at the measured 233k tok/s, plus prep |
+
+**Stages 1+2 are under an hour and answer the question the paper actually turns on.** If time is
+short, run those two and stop.
+
+Stage 3 is the one to think about before starting: 7–9 h to move a correlation from n=6 to n=54.
+Worth it before submission, not worth blocking stage 1 on.
 
 ## Traps the script handles for you
 
