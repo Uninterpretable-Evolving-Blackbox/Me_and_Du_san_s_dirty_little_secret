@@ -39,6 +39,14 @@ MLM="${MLM:-ckpt_mlm_s42_token}"
 CLM="${CLM:-ckpt_clm_s42}"
 LAYERS="${LAYERS:-11,14,18}"
 
+# There is no `python` on PATH in a non-interactive shell on the RTX box, so every
+# stage died instantly with "command not found" the first time this ran. Resolve an
+# interpreter explicitly, matching the other scripts in this repo.
+PY="${PY:-$PWD/.venv/bin/python}"
+[ -x "$PY" ] || PY="$(command -v python3 || command -v python)"
+[ -n "$PY" ] || { echo "!! no python interpreter found; set PY=/path/to/python"; exit 2; }
+echo "   interpreter: $PY"
+
 
 # ---------------------------------------------------------------------------
 # STAGE 0 — rebuild Z.npy where it is missing.  RUN THIS FIRST.
@@ -71,7 +79,7 @@ if [ "$STAGE" = 0 ] || [ "$STAGE" = 1 ]; then
         ck="$HOME/own_sae_data/$data/$arm/model_final.pt"
         [ -f "$ck" ] || { bad "no checkpoint for $arm in $data - cannot rebuild $d"; continue; }
         [ -f "$d/META.json" ] && cp "$d/META.json" "$d/META.json.bak.$(date -u +%Y%m%dT%H%M%SZ)"
-        run "s0_${root##*/}_${arm}_L${L}" python eval_ctrl_plm.py \
+        run "s0_${root##*/}_${arm}_L${L}" "$PY" eval_ctrl_plm.py \
           --ckpt "$ck" --name "$arm" --layer "$L" --out-root "$root" \
           --eval-set eval_set --sae-seed 42 --expansion 8 --k-sparse 256
       done
@@ -103,7 +111,7 @@ if [ "$STAGE" = 0 ] || [ "$STAGE" = 1 ]; then
     if [ -f "$outdir/contact_def_sweep.csv" ]; then ok "$tag cached"; continue; fi
     [ -d "$root/$MLM" ] || { bad "$root/$MLM missing — skipping"; continue; }
     export KEEP_Z=1   # the sweep reads Z.npy; prune_z must not remove it
-    run "s1_${tag}" python experiment_contact_def_sweep.py \
+    run "s1_${tag}" "$PY" experiment_contact_def_sweep.py \
       --root "$root" --model-a "$MLM" --model-b "$CLM" \
       --layers "$LAYERS" --n-shuffles 5 \
       --cutoffs 6 --gaps 1,2,12 \
@@ -124,7 +132,7 @@ fi
 if [ "$STAGE" = 0 ] || [ "$STAGE" = 2 ]; then
   say "STAGE 2 — AA selectivity on the shuffled checkpoints"
   if [ -f results_rigor/aa_selectivity_shuf.csv ]; then ok "cached"; else
-    run s2_aa_selectivity python experiment_aa_selectivity.py \
+    run s2_aa_selectivity "$PY" experiment_aa_selectivity.py \
       --root "$CTRL_SHUF" --cells "${MLM}:14,${CLM}:14" \
       --out results_rigor/aa_selectivity_shuf.csv
   fi
@@ -145,7 +153,7 @@ if [ "$STAGE" = 0 ] || [ "$STAGE" = 3 ]; then
       out="results_rank_ev/valev_${arm}.json"
       [ -f "$out" ] && { ok "$arm cached"; continue; }
       [ -f "$ck" ]  || { bad "checkpoint missing: $ck"; continue; }
-      run "s3_${arm}" python measure_rank_ev.py \
+      run "s3_${arm}" "$PY" measure_rank_ev.py \
         --ckpt "$ck" --name "$arm" --eval-set eval_set --out "$out"
     done
   done
@@ -160,7 +168,7 @@ fi
 if [ "$STAGE" = 0 ] || [ "$STAGE" = 4 ]; then
   say "STAGE 4 — nonlinear (MLP) probe"
   if [ -f results_ctrl_saefree_mlp/saefree_by_arm.csv ]; then ok "cached"; else
-    run s4_mlp_probe python eval_ctrl_saefree.py --mlp \
+    run s4_mlp_probe "$PY" eval_ctrl_saefree.py --mlp \
       --out results_ctrl_saefree_mlp --skip-contacts \
       --arms ckpt_mlm_s42_token,ckpt_clm_s42,ckpt_mlm_s43_token,ckpt_clm_s43,ckpt_mlm_s44_token,ckpt_clm_s44
   fi
@@ -176,14 +184,14 @@ if [ "$STAGE" = 5 ]; then
   say "STAGE 5 — shuffled corpus + training, seeds 43 and 44"
   SHUF_DATA="$HOME/own_sae_data/uniref50_pilot_shuf"
   if [ ! -d "$SHUF_DATA" ]; then
-    run s5_prep python prep_controlled_corpus.py --shuffle-residues \
+    run s5_prep "$PY" prep_controlled_corpus.py --shuffle-residues \
       --out-dir "$SHUF_DATA"
   else ok "shuffled corpus present"; fi
   for s in 43 44; do
     for obj in mlm clm; do
       out="$HOME/own_sae_data/uniref50_pilot_shuf/ckpt_${obj}_s${s}"
       [ -d "$out" ] && { ok "${obj}_s${s} cached"; continue; }
-      run "s5_${obj}_s${s}" python train_ctrl_plm.py \
+      run "s5_${obj}_s${s}" "$PY" train_ctrl_plm.py \
         --data-dir "$SHUF_DATA" --objective "$obj" --seed "$s" \
         --data-order-seed 1234 --out-dir "$out"
     done
