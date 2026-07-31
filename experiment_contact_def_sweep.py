@@ -49,9 +49,15 @@ from cpu_stage import (
     adj_list_to_sparse, build_protein_permutations, _process_struct_seq_chunk_v3,
 )
 
-CUTOFFS = (6.0, 8.0, 10.0)
-SEQ_GAPS = (6, 12, 24)
-DEFAULT_CELL = (8.0, 12)
+CUTOFFS = (6.0, 8.0, 10.0)      # default grid; override with --cutoffs
+SEQ_GAPS = (6, 12, 24)          # default grid; override with --gaps
+DEFAULT_CELL = (8.0, 12)        # the project default cell, used for the self-check
+
+# NOTE (2026-07-30): --cutoffs/--gaps were added so the metric can be evaluated at
+# OTHER published settings, in particular Simon & Zou (InterPLM): 6 A with NO
+# minimum sequence separation. Pass --gaps 1 for "no floor" (|i-j| >= 1 excludes
+# only the residue itself). Defaults are unchanged, so existing invocations and
+# every number already delivered reproduce bit-for-bit.
 
 
 def struct_delta_for(layer_dir: Path, pdb_dir: Path, cutoff, seq_gap,
@@ -102,7 +108,20 @@ def main():
     ap.add_argument("--n-shuffles", type=int, default=5)
     ap.add_argument("--n-jobs", type=int, default=-1)
     ap.add_argument("--out", default="results_contact_def_sweep")
+    ap.add_argument("--cutoffs", default=None,
+                    help="comma-separated Ca-Ca cutoffs in Angstrom. "
+                         "Default: 6,8,10. InterPLM setting: 6")
+    ap.add_argument("--gaps", default=None,
+                    help="comma-separated minimum |i-j|. Default: 6,12,24. "
+                         "InterPLM setting: 1 (no separation floor)")
     args = ap.parse_args()
+
+    cutoffs = tuple(float(x) for x in args.cutoffs.split(",")) if args.cutoffs else CUTOFFS
+    gaps    = tuple(int(x)   for x in args.gaps.split(","))    if args.gaps    else SEQ_GAPS
+    if any(g < 1 for g in gaps):
+        raise SystemExit("--gaps must be >= 1; |i-j| >= 1 already excludes the residue itself")
+    print(f"  grid: cutoffs={cutoffs} A  x  gaps={gaps}  "
+          f"({len(cutoffs)*len(gaps)} cells per layer)")
 
     layers = [int(x) for x in args.layers.split(",") if x.strip()]
     out = Path(args.out); out.mkdir(parents=True, exist_ok=True)
@@ -118,8 +137,8 @@ def main():
                   f"{'B' if not (db/'Z.npy').exists() else ''}). "
                   f"Re-run the extractor with KEEP_Z=1.")
             continue
-        for cutoff in CUTOFFS:
-            for gap in SEQ_GAPS:
+        for cutoff in cutoffs:
+            for gap in gaps:
                 sa, nnz_a = struct_delta_for(da, pdb_dir, cutoff, gap,
                                              args.n_shuffles, args.n_jobs)
                 sb, _ = struct_delta_for(db, pdb_dir, cutoff, gap,
