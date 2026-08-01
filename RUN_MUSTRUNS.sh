@@ -2,7 +2,8 @@
 # ============================================================================
 # RUN_MUSTRUNS.sh — the outstanding experiments, in value order.
 #
-#   bash RUN_MUSTRUNS.sh            # stages 0-4 (no PLM training; ~10-12 h total)
+#   bash RUN_MUSTRUNS.sh            # stages 0-4 and 6
+#   STAGE=6 bash RUN_MUSTRUNS.sh    # the composition test -- fast, do this first
 #   STAGE=1 bash RUN_MUSTRUNS.sh    # one stage only
 #   STAGE=5 bash RUN_MUSTRUNS.sh    # the long one: two more shuffled training runs
 #
@@ -196,6 +197,62 @@ if [ "$STAGE" = 5 ]; then
         --data-order-seed 1234 --out-dir "$out"
     done
   done
+fi
+
+
+# ---------------------------------------------------------------------------
+# STAGE 6 — does L_struct reward composition alone?  RUN THIS ONE FIRST.
+#
+# WHY: section 5.4 rejects "composition clustering" using an amino-acid
+# SELECTIVITY measure -- one minus normalised entropy over the 20 types. That
+# measure is structurally blind to a CLASS detector: a feature firing on all
+# hydrophobic residues spreads over ~8 types and scores as maximally UNselective.
+#
+# The permutation null shuffles residue positions against a FIXED structure, so
+# any property with spatial autocorrelation in the fold produces excess
+# structural co-activation without encoding structure. Hydrophobicity is the
+# obvious case: hydrophobic residues are disproportionately buried, buried
+# residues have high contact degree, and their long-range partners are
+# disproportionately hydrophobic too.
+#
+# WHAT IT DOES: builds synthetic "features" that are pure indicator functions of
+# residue identity -- no model, no SAE, no training -- and pushes them through
+# the IDENTICAL metric path (same graphs, same permutation null, same
+# struct_delta = observed - shuffled).
+#
+# RESULT ON THE LAPTOP (33.2M pair, layer 6, 8 A / gap 12): a pure cysteine
+# indicator scores +0.4221. The best of 3,840 REAL learned features in the same
+# cell scores +0.3925. An indicator beats 100% of learned features. V/I/L clear
+# the 99th percentile. Charged residues score negative. That is the burial
+# pattern, and it means the composition account is NOT refuted.
+#
+# ALSO NOTE, because it affects how you read every number: any feature active on
+# more than topk_frac of residues is silently zeroed. The code is
+# `active = acts > percentile(acts, 90)`, so a binary feature with occupancy
+# above 10% has a 90th percentile of exactly 1.0, nothing is strictly greater,
+# n_active = 0, and d is forced to 0.0. That is why this stage runs twice, at
+# topk 0.10 (the project setting, valid for the 20 single types) and at 0.50
+# (so the class indicators are measurable at all).
+#
+# COST: about a minute a cell. No SAE training, no GPU.
+# ---------------------------------------------------------------------------
+if [ "$STAGE" = 0 ] || [ "$STAGE" = 6 ]; then
+  say "STAGE 6 — synthetic composition indicators (no model)"
+  for arm in "$MLM" "$CLM"; do
+    for L in ${LAYERS//,/ }; do
+      d="$CTRL_REAL/$arm/layer_$L"
+      [ -f "$d/Z.npy" ] || { bad "no Z.npy in $d - stage 0 rebuilds it"; continue; }
+      for tk in 0.10 0.50; do
+        out="results_synthetic_composition/${arm}_L${L}_tk${tk}.csv"
+        [ -f "$out" ] && { ok "$(basename $out) cached"; continue; }
+        mkdir -p results_synthetic_composition
+        run "s6_${arm}_L${L}_tk${tk}" "$PY" experiment_synthetic_composition.py \
+          --layer-dir "$d" --topk-frac "$tk" --n-shuffles 5 --out "$out"
+      done
+    done
+  done
+  echo "   the number to look at: best synthetic struct_delta vs the p99 and max"
+  echo "   of the real features printed beneath it, per cell."
 fi
 
 say "summary"
