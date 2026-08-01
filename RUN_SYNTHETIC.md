@@ -8,6 +8,15 @@ STAGE=6 bash RUN_MUSTRUNS.sh
 About a minute a cell. No SAE training, no GPU. **Do this before anything else on the list** — it
 may change what the other runs are for.
 
+> **Retraction, if you read the previous version of this file.** It said real SAE features denser
+> than `topk_frac` "are getting `d = 0` throughout the project, with no warning anywhere." **That is
+> false and I withdraw it.** I inferred it from the synthetic run instead of checking the real data.
+> In the 33.2M layer-6 cell, 824 of 3,840 real features have occupancy above 0.10 and **not one** has
+> `struct_delta` exactly 0; every dense feature's 90th percentile is a genuine interior value
+> selecting a proper top decile (~29,370 of 293,760 residues). The degeneracy needs activations
+> **tied** at the threshold, which only binary indicators produce. **No number in the paper is
+> affected.** Details below under "the one artifact".
+
 ---
 
 ## Why
@@ -38,24 +47,36 @@ If an indicator scores comparably to a real learned feature, the metric rewards 
 
 | feature | `struct_delta` | |
 |---|---|---|
-| `aa:C` (pure cysteine indicator) | **+0.4221** | |
-| `class:hydrophobic` | +0.1905 | |
-| `aa:V` / `aa:I` / `aa:L` | +0.145 / +0.125 / +0.114 | above the p99 of real features |
+| **`class:hydrophobic`** | **+0.1905** | **above the p99 of the real features** |
+| `aa:C` (pure cysteine indicator) | +0.4221 | above the *max* of the real features |
+| `aa:V` / `aa:I` / `aa:L` | +0.145 / +0.125 / +0.114 | at or above p99 |
 | `class:charged` | −0.0212 | |
 | `aa:K` / `aa:E` | −0.066 / −0.064 | |
 
-Real SAE features in the **same cell** (n = 3,840): p50 +0.011, p90 +0.060, p99 +0.137, **max
-+0.3925**.
+Real SAE features in the **same cell** (n = 3,840), *rescored at the same `topk_frac` so both sides
+are under one rule*: p50 +0.0101, p90 +0.0567, p99 +0.1340, **max +0.3898**. (At the project's 0.10
+they are p99 +0.1373, max +0.3925 — the real distribution barely moves, so the comparison does not
+depend on the choice.)
 
-**An indicator function beats 100% of the learned features.** And the ordering is the burial pattern
-exactly — buried residues positive, surface residues negative.
+So `class:hydrophobic` beats **99.6%** of the learned features and `aa:C` beats **100%** of them,
+both like-for-like.
+
+**Lead with the `class:hydrophobic` row, not cysteine.** It is the weaker number but the stronger
+argument: a class detector is exactly what §5.4's selectivity measure is blind to, so that row is the
+one the paper's existing test could not have caught. Cysteine is a single type and §5.4's measure
+*would* have scored it as highly selective — it is a striking number but not a hole in the test.
+
+And the ordering is the burial pattern exactly — buried residues positive, surface residues negative.
+It is not a rarity artifact: tryptophan is about as rare as cysteine (occupancy 0.0135 vs 0.0116) and
+scores +0.0368 against cysteine's +0.4221, and across the 20 single types Spearman(occupancy,
+`struct_delta`) = −0.150, p = 0.53.
 
 What we want from your run: does this hold across depths and on both arms, or is layer 6 of the
 33.2M pair special?
 
-## One thing to know before reading any output
+## The one artifact, and its actual scope
 
-**Any feature active on more than `topk_frac` of residues is silently zeroed.** The selection is
+A **binary** feature active on more than `topk_frac` of residues is silently zeroed. The selection is
 
 ```python
 thresh = np.percentile(acts_chunk, 100*(1 - topk_frac), axis=0)
@@ -64,29 +85,39 @@ active = acts_chunk > thresh          # strictly greater
 d[n_active < 5] = 0.0
 ```
 
-For a binary feature with occupancy above 10%, the 90th percentile is exactly 1.0, nothing is
+For a binary feature with occupancy above `topk_frac`, that percentile is exactly 1.0, nothing is
 strictly greater, `n_active` is 0, and `d` is forced to 0.0. On the first laptop run all eight class
-indicators returned exactly `0.0000` and it nearly got reported as a null result. It is an artifact.
+indicators returned exactly `0.0000` and it nearly got read as a null result.
 
-That is why the stage runs **twice per cell**:
+**This requires values tied at the threshold, so it affects binary indicators only.** Real SAE
+activations are continuous — see the retraction at the top. The script now **refuses to emit** a zero
+rather than let one read as a null, so you cannot hit this silently.
 
-- `--topk-frac 0.10` — the project setting. Valid for the 20 single-type indicators, all of which
-  have occupancy under 10%. **Ignore the class rows in these files.**
-- `--topk-frac 0.50` — above every class occupancy, so the class indicators are measurable. Not the
-  project setting, so do not compare these numbers against the paper's.
+**The stage runs once, at `--topk-frac 0.60`.** For a binary feature the score is *invariant* to
+`topk_frac` provided `topk_frac > occupancy` — verified, max |0.60 − 0.50| = 0.0000000000 across all
+28 features, and max |0.60 − 0.10| = 0.0000000000 across the 20 single types. `class:small` has the
+largest occupancy at 0.4929, so 0.60 clears everything with a 0.107 margin. **Every row is directly
+comparable to the paper's numbers** — an earlier version of this file wrongly warned otherwise.
 
-This also has an implication beyond this stage, and it is worth checking separately: real SAE
-features denser than `topk_frac` are getting `d = 0` throughout the project, with no warning
-anywhere.
+Where `Z.npy` is present the stage also passes `--compare-real`, which rescores that cell's real
+features at the same `topk_frac` in the same run, so both sides are scored under one rule. Without
+it the printed real percentiles come from `struct_seq_metrics.csv`, computed at the project default
+of 0.10. The stage does **not** otherwise need `Z.npy`; it builds its features from the sequences.
 
 ## Reading the output
 
-`results_synthetic_composition/<arm>_L<layer>_tk<frac>.csv`, plus a printed summary per cell ranking
-the synthetic features and giving the real-feature percentiles beneath them.
+`results_synthetic_composition/<arm>_L<layer>.csv`, plus a printed summary per cell ranking the
+synthetic features and giving the real-feature percentiles beneath them.
 
 The number that matters: **best synthetic `struct_delta` versus the p99 and max of the real features
 in the same cell.** If the synthetic is at or above p99, composition alone reaches the top of the
 learned distribution.
+
+One caveat on that comparison even with `--compare-real`: the active sets are different sizes.
+Cysteine's is 1.16% of residues; a real feature's selection is a top decile. Cohen's *d* is
+standardised, so this is not fatal, but it is why the script now prints **best CLASS** on its own
+line — the class rows have occupancy in the same range as the real selection and are the fair
+comparison. Quote `class:hydrophobic` beating 99.6% as the headline; quote cysteine as the extreme.
 
 ## What it would mean
 

@@ -226,29 +226,38 @@ fi
 # the 99th percentile. Charged residues score negative. That is the burial
 # pattern, and it means the composition account is NOT refuted.
 #
-# ALSO NOTE, because it affects how you read every number: any feature active on
-# more than topk_frac of residues is silently zeroed. The code is
-# `active = acts > percentile(acts, 90)`, so a binary feature with occupancy
-# above 10% has a 90th percentile of exactly 1.0, nothing is strictly greater,
-# n_active = 0, and d is forced to 0.0. That is why this stage runs twice, at
-# topk 0.10 (the project setting, valid for the 20 single types) and at 0.50
-# (so the class indicators are measurable at all).
+# ONE RUN, at topk 0.60. A BINARY feature whose occupancy exceeds topk_frac is
+# silently zeroed -- percentile(acts, 100*(1-topk)) is exactly 1.0, `acts > thresh`
+# selects nothing, n_active = 0, d is forced to 0.0. class:small has occupancy
+# 0.4929, so topk must sit above that; 0.60 leaves a 0.107 margin. The script now
+# REFUSES to emit a zero rather than let it read as a null result.
 #
-# COST: about a minute a cell. No SAE training, no GPU.
-# ---------------------------------------------------------------------------
+# For a binary feature the score is INVARIANT to topk_frac provided topk > occupancy
+# (verified: max |tk0.60 - tk0.50| = 0.0000000000 across all 28 features, and
+# |tk0.60 - tk0.10| = 0.0000000000 across the 20 single types). So one run above the
+# largest occupancy is sufficient and every row IS comparable to the paper's numbers.
+#
+# This degeneracy needs values TIED at the threshold, which only binary indicators
+# produce. Real continuous SAE features are NOT affected -- checked in the 33.2M
+# layer-6 cell: 824 of 3,840 real features have occupancy above 0.10 and NOT ONE has
+# struct_delta == 0. See the retraction in RUN_SYNTHETIC.md.
+
 if [ "$STAGE" = 0 ] || [ "$STAGE" = 6 ]; then
   say "STAGE 6 — synthetic composition indicators (no model)"
   for arm in "$MLM" "$CLM"; do
     for L in ${LAYERS//,/ }; do
       d="$CTRL_REAL/$arm/layer_$L"
-      [ -f "$d/Z.npy" ] || { bad "no Z.npy in $d - stage 0 rebuilds it"; continue; }
-      for tk in 0.10 0.50; do
-        out="results_synthetic_composition/${arm}_L${L}_tk${tk}.csv"
-        [ -f "$out" ] && { ok "$(basename $out) cached"; continue; }
-        mkdir -p results_synthetic_composition
-        run "s6_${arm}_L${L}_tk${tk}" "$PY" experiment_synthetic_composition.py \
-          --layer-dir "$d" --topk-frac "$tk" --n-shuffles 5 --out "$out"
-      done
+      # NB this stage does NOT need Z.npy -- it builds its own features from the
+      # sequences. Only the optional --compare-real rescoring reads Z.npy.
+      [ -f "$d/sequences.json" ] && [ -f "$d/lengths.npy" ] || {
+        bad "no sequences.json/lengths.npy in $d"; continue; }
+      out="results_synthetic_composition/${arm}_L${L}.csv"
+      [ -f "$out" ] && { ok "$(basename $out) cached"; continue; }
+      mkdir -p results_synthetic_composition
+      EXTRA=""
+      [ -f "$d/Z.npy" ] && EXTRA="--compare-real"
+      run "s6_${arm}_L${L}" "$PY" experiment_synthetic_composition.py \
+        --layer-dir "$d" --topk-frac 0.60 --n-shuffles 5 --out "$out" $EXTRA
     done
   done
   echo "   the number to look at: best synthetic struct_delta vs the p99 and max"

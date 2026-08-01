@@ -81,7 +81,9 @@ def residue_codes(layer_dir: Path):
     for s, L in zip(ordered, lengths):
         L = int(L)
         chars = list(str(s)[:L])
-        chars += ["X"] * (L - len(chars))
+        if len(chars) < L:
+            raise SystemExit(f"  sequence shorter ({len(chars)}) than its lengths entry "
+                             f"({L}); padding this would misalign every downstream row.")
         out[off:off + L] = chars
         off += L
     return out
@@ -97,9 +99,19 @@ def main():
     ap.add_argument("--n-jobs", type=int, default=-1)
     ap.add_argument("--topk-frac", type=float, default=0.10)
     ap.add_argument("--out", default="results_synthetic_composition.csv")
+    ap.add_argument("--compare-real", action="store_true",
+                    help="rescore the cell's REAL features at this same --topk-frac so "
+                         "both sides are scored under one rule. Without it the printed "
+                         "real percentiles come from struct_seq_metrics.csv, which was "
+                         "computed at the project default of 0.10.")
     args = ap.parse_args()
 
     layer_dir = Path(args.layer_dir)
+    pdb_dir = Path(args.pdb_dir)
+    if not pdb_dir.is_dir() or not any(pdb_dir.iterdir()):
+        raise SystemExit(f"  --pdb-dir {pdb_dir} missing or empty. Without it every "
+                         f"pdb_path.exists() is False and the contact graph comes back "
+                         f"empty, which looks like a result rather than an error.")
     codes = residue_codes(layer_dir)
     uids = [str(u) for u in json.loads((layer_dir / "uids.json").read_text())]
     lengths = np.load(layer_dir / "lengths.npy")
@@ -113,7 +125,7 @@ def main():
 
     # identical graphs to every other number in the project
     seq_adj, struct_adj = build_neighbor_graphs_residue_parallel(
-        uids, lengths, ref_seqs, Path(args.pdb_dir), args.n_jobs,
+        uids, lengths, ref_seqs, pdb_dir, args.n_jobs,
         contact_cutoff=args.cutoff, seq_gap_min=args.seq_gap)
     A_seq, deg_seq = adj_list_to_sparse(seq_adj, n_res)
     A_struct, deg_struct = adj_list_to_sparse(struct_adj, n_res)
@@ -130,7 +142,29 @@ def main():
     Z = np.stack(cols, axis=1)
     frac = Z.mean(axis=0)
     print(f"  synthetic features: {Z.shape[1]} "
-          f"(occupancy {frac.min():.3f}-{frac.max():.3f})\n")
+          f"(occupancy {frac.min():.3f}-{frac.max():.3f})")
+
+    # A BINARY feature whose occupancy exceeds topk_frac is silently zeroed:
+    # thresh = percentile(acts, 100*(1-topk_frac)) is exactly 1.0, `acts > thresh`
+    # selects nothing, n_active = 0, and the kernel forces d = 0.0. Refuse to emit
+    # that rather than let a zero be read as a null result. NB this degeneracy needs
+    # values TIED at the threshold, so it affects binary indicators only -- real
+    # continuous SAE features are not at risk.
+    over = [(n, f) for n, f in zip(names, frac) if f >= args.topk_frac]
+    if over:
+        print(f"\n  !! {len(over)} feature(s) have occupancy >= topk_frac="
+              f"{args.topk_frac}; these would be silently zeroed:")
+        for n, f in over:
+            print(f"       {n:22} occupancy {f:.4f}")
+        raise SystemExit(
+            f"  refusing to emit zeros. Re-run with --topk-frac above "
+            f"{max(f for _, f in over):.3f}, or drop those features.")
+    margin = min(args.topk_frac - f for f in frac)
+    tight = [n for n, f in zip(names, frac) if args.topk_frac - f < 0.01]
+    if tight:
+        print(f"  !! within 0.01 of the threshold (would vanish on another "
+              f"dataset): {', '.join(tight)}")
+    print(f"  smallest margin to topk_frac: {margin:.4f}\n")
 
     perms = build_protein_permutations(lengths, args.n_shuffles)
     n_features = Z.shape[1]
@@ -157,16 +191,47 @@ def main():
     ref = layer_dir / "struct_seq_metrics.csv"
     print("  SYNTHETIC FEATURES, ranked by L_struct")
     print(df.to_string(index=False, float_format=lambda v: f"{v:+.4f}"))
-    if ref.exists():
+    real, how = None, ""
+    if args.compare_real and (layer_dir / "Z.npy").exists():
+        print("\n  rescoring the REAL features at this same topk_frac so both "
+              "sides are scored under one rule...")
+        Zr = np.load(layer_dir / "Z.npy", mmap_mode="r")
+        nf = int(Zr.shape[1]); ch = 256
+        rr = Parallel(n_jobs=args.n_jobs, verbose=0)(
+            delayed(_process_struct_seq_chunk_v3)(
+                ci, ch, Zr, None, A_seq, deg_seq, A_struct, deg_struct,
+                perms, nf, args.topk_frac)
+            for ci in range((nf + ch - 1) // ch))
+        ri = np.concatenate([r[0] for r in rr])
+        real = ((np.concatenate([r[2] for r in rr])
+                 - np.concatenate([r[4] for r in rr]))[np.argsort(ri)])
+        np.save(args.out.replace(".csv", "_realmatched.npy"), real)
+        how = f"rescored at topk_frac={args.topk_frac}, like-for-like"
+    elif ref.exists():
         real = pd.read_csv(ref)["struct_delta"].to_numpy(float)
-        print(f"\n  REAL SAE features in the same cell (n={len(real):,}):")
+        how = ("from struct_seq_metrics.csv, computed at the project default "
+               "topk_frac=0.10 — pass --compare-real for like-for-like")
+
+    if real is not None:
+        print(f"\n  REAL SAE features in the same cell (n={len(real):,})")
+        print(f"    [{how}]")
         for q in (50, 75, 90, 99):
             print(f"    p{q:<3} {np.percentile(real, q):+.4f}")
         print(f"    max  {real.max():+.4f}    mean {real.mean():+.4f}")
-        best = df.struct_delta.max()
-        pct = (real < best).mean() * 100
-        print(f"\n  >> best synthetic ({df.iloc[0].feature}) = {best:+.4f}, "
-              f"which beats {pct:.1f}% of real learned features")
+        # Report the class rows separately: their occupancy is in the same range
+        # as a real feature's top-decile active set, so they are the fair
+        # comparison. A single-type indicator selects far fewer residues.
+        for label, sub in (("best overall", df),
+                           ("best CLASS  ", df[df.feature.str.startswith("class:")])):
+            if not len(sub):
+                continue
+            best = sub.struct_delta.max()
+            row = sub.loc[sub.struct_delta.idxmax()]
+            pct = (real < best).mean() * 100
+            print(f"  >> {label} ({row.feature}, occupancy {row.occupancy:.3f}) "
+                  f"= {best:+.4f}, beating {pct:.1f}% of real learned features")
+    else:
+        print("\n  [no real-feature reference found in this cell]")
     print(f"\n  written: {args.out}")
 
 
