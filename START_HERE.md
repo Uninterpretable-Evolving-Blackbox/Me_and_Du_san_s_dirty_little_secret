@@ -95,4 +95,15 @@ If anything goes red: send `logs_mustruns/` and don't try to fix it.
 ## One thing that changed in the code
 
 `eval_ctrl_saefree.py` now pins the random seed on the linear probe. If you re-run
-stage 4 the probe numbers may shift in the last digit or two. That's expected and is
+stage 4 the probe numbers may shift in the last digit or two. That's expected and is the point — say so if you notice it, rather than treating it as a regression.
+
+## One check that is not optional
+
+Stage 12 prints a `swap rate` and stage 11 prints a `POSITIVE CONTROL` line. Both
+exist because the thing they guard has already failed silently once.
+
+- stage 12 swap rate should be around **0.78**. Near zero means the null never
+  happened and the numbers are meaningless.
+- stage 11 positive control should land near **0.61**. Near 0.50 means the probe
+  itself is too weak, and every other number from that stage is uninterpretable.
+

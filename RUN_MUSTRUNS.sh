@@ -2,7 +2,7 @@
 # ============================================================================
 # RUN_MUSTRUNS.sh — the outstanding experiments, in value order.
 #
-#   bash RUN_MUSTRUNS.sh            # stages 0-4 and 6-13
+#   STAGE=all bash RUN_MUSTRUNS.sh  # everything (12+ h -- rarely what you want)
 #   STAGE=6 bash RUN_MUSTRUNS.sh    # the composition test -- fast, do this first
 #   STAGE=1 bash RUN_MUSTRUNS.sh    # one stage only
 #   STAGE=5 bash RUN_MUSTRUNS.sh    # the long one: two more shuffled training runs
@@ -19,7 +19,27 @@
 # ============================================================================
 set -uo pipefail
 
-STAGE="${STAGE:-0}"
+if [ -z "${STAGE:-}" ]; then
+  cat <<'USAGE'
+  Set STAGE explicitly. A bare run fires every stage -- the 2 h Z rebuild plus all
+  the GPU stages, 12+ hours -- which is almost never what you want.
+
+    STAGE=6  fast, no GPU, ~10 min   synthetic composition indicators
+    STAGE=9  fast, no GPU, ~30 min   permutation-count sensitivity
+    STAGE=10 GPU, ~1 h               raw-dimension L_struct + perplexity   <- start here
+    STAGE=12 CPU, ~1 h               matched contact-map nulls
+    STAGE=11 CPU, ~1 h               pairwise contact probes
+    STAGE=13 CPU, ~2 h               continuous separation sweep
+    STAGE=7  GPU, ~2 h               dictionary-seed variation
+    STAGE=8  GPU, ~1 h               capacity sweep to overlapping val_EV
+    STAGE=5  GPU, 1-2 DAYS           shuffled training at seeds 43/44
+    STAGE=all                        really run everything
+
+  See START_HERE.md.
+USAGE
+  exit 0
+fi
+[ "$STAGE" = all ] && STAGE=0
 LOGS=logs_mustruns; mkdir -p "$LOGS"
 REV="$(git rev-parse --short HEAD 2>/dev/null || echo nogit)"
 FAILED=()
@@ -443,6 +463,22 @@ if [ "$STAGE" = 0 ] || [ "$STAGE" = 11 ]; then
       fi
     done
   done
+  # POSITIVE CONTROL. Without it a null on our models is uninterpretable: you cannot
+  # tell "structure is not pairwise-decodable" from "this probe is too weak". Rao 2021
+  # and Vig 2021 both establish contacts ARE recoverable from published pLM
+  # representations, so the probe must clear chance there or its nulls mean nothing.
+  # Measured locally on ESM-2 L16 raw: separation-matched AUROC 0.606, shuffled-label
+  # control 0.499. If this comes back at ~0.5 the probe is broken, ignore the rest.
+  PC=outputs_layerwise/esm2/layer_16
+  if [ -f "$PC/raw_embeddings.npy" ]; then
+    out=results_pairwise_probe/POSITIVE_CONTROL_esm2_L16_raw.json
+    [ -f "$out" ] || run "s11_positive_control" "$PY" experiment_pairwise_probe.py \
+      --layer-dir "$PC" --mode raw --raw-npy "$PC/raw_embeddings.npy" --out "$out"
+    echo "   POSITIVE CONTROL should land near 0.61. If it is ~0.50 the probe is at"
+    echo "   fault and every other number from stage 11 is uninterpretable."
+  else
+    bad "no ESM-2 raw activations for the stage 11 positive control -- results will be uninterpretable"
+  fi
 fi
 
 # ---------------------------------------------------------------------------

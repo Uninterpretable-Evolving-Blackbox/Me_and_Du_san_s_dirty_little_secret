@@ -78,11 +78,22 @@ def null_separation(E, lengths, offs, prot, rng):
     return np.array(out, dtype=np.int64)
 
 
-def null_swap(E, prot, rng, n_rounds=10):
+def null_swap(E, prot, rng, seq_gap=12, n_rounds=10):
     """Double-edge swap within each protein. Preserves each residue's degree exactly.
-    Does NOT preserve separation -- see the module docstring."""
+    Does NOT preserve the separation DISTRIBUTION -- see the module docstring -- but
+    every rewired edge still satisfies |i-j| >= seq_gap, so the null never contains
+    contacts the real graph was not allowed to contain.
+
+    Two rejection rules, neither of which this originally had, both measured to be
+    necessary. Without multi-edge rejection the swap created 9,522 duplicate edges,
+    so degree was preserved only on the multigraph -- deduplicating changed 17,243
+    residues' degrees. Without the floor check, 5% of rewired edges landed below
+    |i-j| >= 12 with separations as low as 1, which is disqualifying here because
+    the separation floor is the very thing this paper is about.
+    """
     match_sep = False
     E = E.copy()
+    existing = set(map(tuple, E))
     seps = E[:, 1] - E[:, 0]
     # Group by PROTEIN first. Pairing edges globally means two randomly chosen edges
     # are almost never in the same protein (~1/n_proteins), so essentially every swap
@@ -117,6 +128,12 @@ def null_swap(E, prot, rng, n_rounds=10):
                 nc, nd = (c, b) if c < b else (b, c)
                 if na == nb or nc == nd:
                     continue
+                if nb - na < seq_gap or nd - nc < seq_gap:
+                    continue                          # never fall below the floor
+                if (na, nb) in existing or (nc, nd) in existing:
+                    continue                          # no multi-edges
+                existing.discard(tuple(E[u])); existing.discard(tuple(E[v]))
+                existing.add((na, nb)); existing.add((nc, nd))
                 E[u] = (na, nb); E[v] = (nc, nd); ok += 1
     return E, (ok / max(tried, 1))
 
@@ -179,7 +196,7 @@ def main():
         if name == "separation":
             En, rate = null_separation(E, lengths, offs, prot, rng), None
         elif name == "degree":
-            En, rate = null_swap(E, prot, rng)
+            En, rate = null_swap(E, prot, rng, seq_gap=args.seq_gap)
         else:
             continue
         A_n, deg_n = adj_list_to_sparse(adj_from_edges(En, n_res), n_res)
