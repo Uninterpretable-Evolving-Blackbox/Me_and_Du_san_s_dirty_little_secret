@@ -2,7 +2,7 @@
 # ============================================================================
 # RUN_MUSTRUNS.sh — the outstanding experiments, in value order.
 #
-#   bash RUN_MUSTRUNS.sh            # stages 0-4 and 6-9
+#   bash RUN_MUSTRUNS.sh            # stages 0-4 and 6-13
 #   STAGE=6 bash RUN_MUSTRUNS.sh    # the composition test -- fast, do this first
 #   STAGE=1 bash RUN_MUSTRUNS.sh    # one stage only
 #   STAGE=5 bash RUN_MUSTRUNS.sh    # the long one: two more shuffled training runs
@@ -363,6 +363,143 @@ if [ "$STAGE" = 0 ] || [ "$STAGE" = 9 ]; then
   done
   echo "   compare d and mean_a/mean_b between nshuf5 and nshuf25 at the same cells."
   echo "   a material move means the null is undersampled at 5."
+fi
+
+# ---------------------------------------------------------------------------
+# STAGE 10 — L_struct with no autoencoder, and perplexity.  HIGHEST VALUE.
+#
+# WHY: two reviewers asked for the same thing independently. L_struct has only
+# ever been computed on SAE features, so it has never been compared against its
+# own object -- the raw residual stream. If the shuffled/real gap persists on raw
+# dimensions, no instrumental account of it can hold. If it collapses, the
+# autoencoder IS the story. Section 4.3 puts the instrumental share anywhere from
+# 4% to 89% depending on which dose-response is fitted; this settles it.
+#
+# Perplexity rides along because the checkpoint is already loaded. Nobody has ever
+# recorded it, and it is the first thing a reader wants before believing any
+# negative result about these models.
+#
+# NB the masked arm's number is a PSEUDO-perplexity (one masked position at a
+# time). It is not comparable to the causal arm's. The output labels which is which.
+#
+# COST: forward passes only, no training. ~1 h GPU.
+# ---------------------------------------------------------------------------
+if [ "$STAGE" = 0 ] || [ "$STAGE" = 10 ]; then
+  say "STAGE 10 — raw-dimension L_struct + perplexity"
+  for spec in "uniref50_pilot:real" "uniref50_pilot_shuf:shuf"; do
+    data="${spec%%:*}"; tag="${spec##*:}"
+    for arm in "$MLM" "$CLM"; do
+      out="results_raw_coactivation/${tag}_${arm}.csv"
+      [ -f "$out" ] && { ok "$(basename $out) cached"; continue; }
+      ck="$HOME/own_sae_data/$data/$arm/model_final.pt"
+      [ -f "$ck" ] || { bad "no checkpoint: $ck"; continue; }
+      run "s10_${tag}_${arm}" "$PY" experiment_raw_coactivation.py \
+        --ckpt "$ck" --name "$arm" --layers "$LAYERS" --eval-set eval_set \
+        --n-shuffles 5 --out "$out"
+    done
+  done
+  echo "   compare mean_struct_delta between real_* and shuf_*, per arm and layer."
+fi
+
+# ---------------------------------------------------------------------------
+# STAGE 11 — pairwise structural-proximity probes.
+#
+# WHY: L_struct assumes structurally related residues activate the SAME sparse
+# features. That is an assumption, never defended. Structure could sit in a
+# subspace, be spread across features, or be encoded RELATIONALLY between two
+# representations -- in which case L_struct cannot see it and a null result says
+# nothing about whether the model has it. This asks directly: given two residues'
+# representations, can a probe tell whether they are in contact?
+#
+# Run on BOTH raw activations and SAE features. Raw predictable + SAE not means the
+# autoencoder is destroying the relation, which is a different failure from the
+# model lacking it.
+#
+# READ THE separation_matched NUMBER, not the unmatched one: negatives are drawn to
+# match the positives' |i-j| distribution, otherwise the probe wins by reading
+# sequence distance. The shuffled-label control must sit at ~0.5.
+#
+# LOCAL RESULT so you know what to expect: on the 33.2M held-back pair at L6, SAE
+# features gave separation-matched AUROC 0.524 with the control at 0.491 -- i.e.
+# almost no pairwise contact information. Whether raw does better is the question.
+#
+# COST: CPU only. ~1 h.
+# ---------------------------------------------------------------------------
+if [ "$STAGE" = 0 ] || [ "$STAGE" = 11 ]; then
+  say "STAGE 11 — pairwise structural-proximity probes (SAE vs raw)"
+  for arm in "$MLM" "$CLM"; do
+    for L in ${LAYERS//,/ }; do
+      d="$CTRL_REAL/$arm/layer_$L"
+      [ -f "$d/Z.npy" ] || { bad "no Z.npy in $d (run STAGE=1 first)"; continue; }
+      out="results_pairwise_probe/${arm}_L${L}_sae.json"
+      [ -f "$out" ] || run "s11_${arm}_L${L}_sae" "$PY" experiment_pairwise_probe.py \
+        --layer-dir "$d" --mode sae --out "$out"
+      if [ -f "$d/X.npy" ]; then
+        out="results_pairwise_probe/${arm}_L${L}_raw.json"
+        [ -f "$out" ] || run "s11_${arm}_L${L}_raw" "$PY" experiment_pairwise_probe.py \
+          --layer-dir "$d" --mode raw --raw-npy "$d/X.npy" --out "$out"
+      else
+        echo "   (no X.npy in $d -- raw arm of stage 11 skipped; stage 10 can save one)"
+      fi
+    done
+  done
+fi
+
+# ---------------------------------------------------------------------------
+# STAGE 12 — matched contact-map nulls.
+#
+# WHY: L_struct's null permutes ACTIVATIONS and holds the contact graph fixed. So
+# it controls for the activation distribution and not for the graph. Any property
+# with spatial autocorrelation in the fold -- burial, hydrophobicity, contact
+# degree -- gives excess co-activation over a real contact map without the model
+# encoding structure. This permutes the other side.
+#
+# LOCAL RESULT: on the 33.2M pair at L6, a graph matched only on the
+# sequence-separation profile retained 37% of the real value. That is a large
+# fraction of L_struct explained by the separation profile alone.
+#
+# CHECK THE SWAP RATE in the output. The degree null silently failed the first time
+# it was written (edges were paired globally, so both were almost never in the same
+# protein and no swap fired). It is fixed and the rate is now reported -- if it
+# comes back near zero, the null did not happen and the number is meaningless.
+#
+# COST: CPU only. ~1 h.
+# ---------------------------------------------------------------------------
+if [ "$STAGE" = 0 ] || [ "$STAGE" = 12 ]; then
+  say "STAGE 12 — matched contact-map nulls (separation / degree)"
+  for arm in "$MLM" "$CLM"; do
+    for L in ${LAYERS//,/ }; do
+      d="$CTRL_REAL/$arm/layer_$L"
+      [ -f "$d/Z.npy" ] || { bad "no Z.npy in $d"; continue; }
+      out="results_contact_null/${arm}_L${L}.csv"
+      [ -f "$out" ] && { ok "$(basename $out) cached"; continue; }
+      run "s12_${arm}_L${L}" "$PY" experiment_contact_null.py \
+        --layer-dir "$d" --nulls separation,degree --out "$out"
+    done
+  done
+fi
+
+# ---------------------------------------------------------------------------
+# STAGE 13 — continuous separation sweep.
+#
+# WHY: the paper shows the separation axis at 1, 2, 6, 12 and 24 only, and the sign
+# flips somewhere between 2 and 6. A continuous curve shows where it actually
+# crosses and whether the plateau above 6 is real, instead of a floor/no-floor
+# contrast. Asked for directly in review.
+#
+# COST: CPU only, no training. ~2 h (many gap values).
+# ---------------------------------------------------------------------------
+if [ "$STAGE" = 0 ] || [ "$STAGE" = 13 ]; then
+  say "STAGE 13 — continuous separation sweep"
+  GAPS="1,2,3,4,5,6,7,8,9,10,12,14,16,20,24,30"
+  for root in "$CTRL_REAL" "$CTRL_SHUF"; do
+    out="results_sep_continuous/${root##*/}"
+    [ -f "$out/contact_def_sweep.csv" ] && { ok "${root##*/} cached"; continue; }
+    run "s13_${root##*/}" "$PY" experiment_contact_def_sweep.py \
+      --root "$root" --model-a "$MLM" --model-b "$CLM" --layers "$LAYERS" \
+      --cutoffs 6 --gaps "$GAPS" --n-shuffles 5 --out "$out"
+  done
+  echo "   plot d against gap. the interesting region is 2-6, where the sign flips."
 fi
 
 say "summary"

@@ -63,6 +63,27 @@ Send back: `results_rigor/capacity_vs_lstruct_extended.csv`
 
 ---
 
+## 5. The reviewer-driven batch (added 2 Aug)
+
+Four more stages, all from supervisor feedback. Run them in this order.
+
+```
+STAGE=10 bash RUN_MUSTRUNS.sh     # ~1 h GPU  -- raw-dimension L_struct + perplexity
+STAGE=12 bash RUN_MUSTRUNS.sh     # ~1 h CPU  -- matched contact-map nulls
+STAGE=11 bash RUN_MUSTRUNS.sh     # ~1 h CPU  -- pairwise contact probes
+STAGE=13 bash RUN_MUSTRUNS.sh     # ~2 h CPU  -- continuous separation sweep
+```
+
+Send back: `results_raw_coactivation/`, `results_contact_null/`,
+`results_pairwise_probe/`, `results_sep_continuous/`
+
+Stage 10 is the important one. Stages 11-13 need `Z.npy` in `outputs_ctrl`; if they
+report it missing, run `STAGE=1` first.
+
+**One thing to check rather than trust:** stage 12 prints a `swap rate`. If it comes
+back near zero the null didn't actually happen and the number is meaningless. It
+should be around 0.97. I broke this once already and it failed silently.
+
 ## How to tell if it worked
 
 Green `OK` lines and the script exits 0. It exits non-zero on any failure and prints
@@ -75,4 +96,3 @@ If anything goes red: send `logs_mustruns/` and don't try to fix it.
 
 `eval_ctrl_saefree.py` now pins the random seed on the linear probe. If you re-run
 stage 4 the probe numbers may shift in the last digit or two. That's expected and is
-the point — say so if you notice it, don't treat it as a regression.
