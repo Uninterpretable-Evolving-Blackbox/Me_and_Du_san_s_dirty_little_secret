@@ -1,3 +1,6 @@
+> **Running something for me? Read [START_HERE.md](START_HERE.md).** The other
+> `RUN_*.md` files are older and some contradict it.
+
 # Controlled MLM-vs-CLM protein LM experiment
 
 ## 👉 START HERE

@@ -2,7 +2,7 @@
 # ============================================================================
 # RUN_MUSTRUNS.sh — the outstanding experiments, in value order.
 #
-#   bash RUN_MUSTRUNS.sh            # stages 0-4 and 6
+#   bash RUN_MUSTRUNS.sh            # stages 0-4 and 6-9
 #   STAGE=6 bash RUN_MUSTRUNS.sh    # the composition test -- fast, do this first
 #   STAGE=1 bash RUN_MUSTRUNS.sh    # one stage only
 #   STAGE=5 bash RUN_MUSTRUNS.sh    # the long one: two more shuffled training runs
@@ -262,6 +262,107 @@ if [ "$STAGE" = 0 ] || [ "$STAGE" = 6 ]; then
   done
   echo "   the number to look at: best synthetic struct_delta vs the p99 and max"
   echo "   of the real features printed beneath it, per cell."
+fi
+
+# ---------------------------------------------------------------------------
+# STAGE 7 — dictionary-seed variation.  The missing variance component.
+#
+# WHY: every number in the paper sits at SAE seed 42. The reported spread
+# (SD 0.0234 across three seeds) is MODEL-seed variance only, and the paper's
+# seed-level intervals are built on it. But the dictionary is instrument, not
+# model, and Section 5.2 finds L_struct tracks dictionary capacity at rho +0.94.
+# If dictionary-seed variance is comparable, those intervals are understated and
+# the omnibus p = 0.0028 is optimistic. Nobody has ever measured it.
+#
+# DESIGN: model seed fixed at 42, capacity fixed at the paper's k=256/expansion=8,
+# ONLY the SAE init seed moves. That is the correct pairing -- vary one seed axis
+# with the other pinned, or the variance cannot be attributed.
+#
+# COST: 3 layers x 2 arms x 2 seeds = 12 SAE fits, ~9 min each, ~2 h. GPU.
+# ---------------------------------------------------------------------------
+if [ "$STAGE" = 0 ] || [ "$STAGE" = 7 ]; then
+  say "STAGE 7 — dictionary-seed variation (model seed fixed at 42)"
+  for dseed in 43 44; do
+    for arm in "$MLM" "$CLM"; do
+      for L in ${LAYERS//,/ }; do
+        root="outputs_ctrl_dseed${dseed}"
+        [ -f "$root/$arm/layer_$L/struct_seq_metrics.csv" ] && { ok "dseed$dseed $arm L$L cached"; continue; }
+        ck="$HOME/own_sae_data/uniref50_pilot/$arm/model_final.pt"
+        [ -f "$ck" ] || { bad "no checkpoint for $arm - cannot run dseed$dseed"; continue; }
+        run "s7_dseed${dseed}_${arm}_L${L}" "$PY" eval_ctrl_plm.py \
+          --ckpt "$ck" --name "$arm" --layer "$L" --out-root "$root" \
+          --eval-set eval_set --sae-seed "$dseed" --expansion 8 --k-sparse 256
+      done
+    done
+  done
+  echo "   compare mean struct_delta across outputs_ctrl{,_dseed43,_dseed44} per cell."
+  echo "   the number that matters: SD across dictionary seeds vs SD across model seeds (0.0234)."
+fi
+
+# ---------------------------------------------------------------------------
+# STAGE 8 — extend the capacity sweep until the two arms overlap in val_EV.
+#
+# WHY: Section 4.3 cannot say how much of the shuffled-model rise is the
+# autoencoder, because the estimate ranges from 4% to 89% depending purely on
+# which slope is fitted. The reason it is under-determined is that the two arms'
+# capacity configurations are DISJOINT in val_EV -- masked 0.90-0.98, causal
+# 0.26-0.84 -- so no common dose-response can be fitted with support anywhere.
+# Pushing the masked arm down into the causal range supplies that support and
+# settles the question WITHOUT needing the raw-dimension run.
+#
+# DESIGN: masked arm only, layer 14, dictionary seed fixed at 42, small k so
+# val_EV falls into the causal range. Feeds analyze_capacity_lstruct.py.
+#
+# COST: 6 SAE fits, ~1 h. GPU.
+# ---------------------------------------------------------------------------
+if [ "$STAGE" = 0 ] || [ "$STAGE" = 8 ]; then
+  say "STAGE 8 — capacity extension for overlapping val_EV (masked arm)"
+  ck="$HOME/own_sae_data/uniref50_pilot/$MLM/model_final.pt"
+  if [ ! -f "$ck" ]; then bad "no checkpoint for $MLM - cannot extend capacity sweep"; else
+    for k in 8 16 32; do
+      for e in 4 8; do
+        cell="outputs_ctrl_cap/${MLM}_k${k}_e${e}/layer_14"
+        [ -f "$cell/struct_seq_metrics.csv" ] && { ok "k$k e$e cached"; continue; }
+        run "s8_${MLM}_k${k}_e${e}" "$PY" eval_ctrl_plm.py \
+          --ckpt "$ck" --name "${MLM}_k${k}_e${e}" --layer 14 \
+          --out-root outputs_ctrl_cap --eval-set eval_set \
+          --sae-seed 42 --expansion "$e" --k-sparse "$k"
+      done
+    done
+    run "s8_analyze" "$PY" analyze_capacity_lstruct.py --root outputs_ctrl_cap --layer 14 \
+      --out results_rigor/capacity_vs_lstruct_extended.csv || true
+  fi
+  echo "   target: masked val_EV cells landing inside 0.26-0.84, where the causal arm already sits."
+fi
+
+# ---------------------------------------------------------------------------
+# STAGE 9 — is the 5-permutation null adding material noise?
+#
+# WHY: L_struct subtracts a null averaged over 5 within-protein permutations.
+# Five is few. The permutation SEED is pinned, so the same draws are reused for
+# every model and arm and the comparison is paired -- that part is right. What is
+# unknown is whether five draws estimate the null tightly enough, and the noise
+# will not be symmetric between arms if their activation densities differ.
+#
+# DESIGN: identical cells, identical seed, only the permutation COUNT changes.
+# If the effect moves materially between 5 and 25, every L_struct number in the
+# paper carries more null noise than its interval admits.
+#
+# COST: CPU only, no training. ~30 min.
+# ---------------------------------------------------------------------------
+if [ "$STAGE" = 0 ] || [ "$STAGE" = 9 ]; then
+  say "STAGE 9 — permutation-count sensitivity (5 vs 25 draws)"
+  out=results_nshuffle_sensitivity
+  mkdir -p "$out"
+  for n in 5 25; do
+    f="$out/nshuf${n}/contact_def_sweep.csv"
+    [ -f "$f" ] && { ok "n=$n cached"; continue; }
+    run "s9_nshuf${n}" "$PY" experiment_contact_def_sweep.py \
+      --root "$CTRL_REAL" --model-a "$MLM" --model-b "$CLM" \
+      --layers "$LAYERS" --n-shuffles "$n" --out "$out/nshuf${n}"
+  done
+  echo "   compare d and mean_a/mean_b between nshuf5 and nshuf25 at the same cells."
+  echo "   a material move means the null is undersampled at 5."
 fi
 
 say "summary"

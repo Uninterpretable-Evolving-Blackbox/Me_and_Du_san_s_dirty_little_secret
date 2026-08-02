@@ -207,7 +207,12 @@ def run_probe(X_tr, y_tr, X_te, y_te, mlp=False):
         except Exception:
             auc = np.nan
         return float(f1_score(y_te, pred)), float(auc)
-    clf = LogisticRegression(max_iter=300, C=1.0, class_weight="balanced", solver="liblinear")
+    # random_state matters here: sklearn documents it as used by the liblinear
+    # solver, which shuffles the data internally. Without it the linear probe has an
+    # unseeded stochastic component whose run-to-run variance is silently attributed
+    # to the training seed. The MLP path above is already seeded on both axes.
+    clf = LogisticRegression(max_iter=300, C=1.0, class_weight="balanced",
+                             solver="liblinear", random_state=42)
     clf.fit(X_tr, y_tr)
     pred = clf.predict(X_te)
     try:
