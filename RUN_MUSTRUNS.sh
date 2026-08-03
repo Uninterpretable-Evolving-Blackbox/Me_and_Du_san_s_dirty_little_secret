@@ -424,9 +424,12 @@ if [ "$STAGE" = 0 ] || [ "$STAGE" = 10 ]; then
       [ -f "$out" ] && { ok "$(basename $out) cached"; continue; }
       ck="$HOME/own_sae_data/$data/$arm/model_final.pt"
       [ -f "$ck" ] || { bad "no checkpoint: $ck"; continue; }
+      # --save-raw: stage 11's raw arm needs X.npy and NOTHING else in this repo
+      # writes it, so without this the half of stage 11 that answers the reviewer
+      # ("is it in the residual stream?") silently skips. ~188 MB/cell.
       run "s10_${tag}_${arm}" "$PY" experiment_raw_coactivation.py \
         --ckpt "$ck" --name "$arm" --layers "$LAYERS" --eval-set eval_set \
-        --n-shuffles 5 --out "$out"
+        --n-shuffles 5 --save-raw --raw-out-root "outputs_raw_${tag}" --out "$out"
     done
   done
   echo "   compare mean_struct_delta between real_* and shuf_*, per arm and layer."
@@ -465,12 +468,13 @@ if [ "$STAGE" = 0 ] || [ "$STAGE" = 11 ]; then
       out="results_pairwise_probe/${arm}_L${L}_sae.json"
       [ -f "$out" ] || run "s11_${arm}_L${L}_sae" "$PY" experiment_pairwise_probe.py \
         --layer-dir "$d" --mode sae --out "$out"
-      if [ -f "$d/X.npy" ]; then
+      RAW="outputs_raw_real/$arm/layer_$L/X.npy"
+      if [ -f "$RAW" ]; then
         out="results_pairwise_probe/${arm}_L${L}_raw.json"
         [ -f "$out" ] || run "s11_${arm}_L${L}_raw" "$PY" experiment_pairwise_probe.py \
-          --layer-dir "$d" --mode raw --raw-npy "$d/X.npy" --out "$out"
+          --layer-dir "$d" --mode raw --raw-npy "$RAW" --out "$out"
       else
-        echo "   (no X.npy in $d -- raw arm of stage 11 skipped; stage 10 can save one)"
+        bad "no raw activations at $RAW -- run STAGE=10 first, the raw arm is the half that answers the reviewer"
       fi
     done
   done
@@ -679,6 +683,12 @@ if [ "$STAGE" = 0 ] || [ "$STAGE" = 16 ]; then
 fi
 
 say "summary"
+if [ "$STAGE" != 5 ]; then
+  echo
+  echo "   Now run:  $PY summarize_reviewer_batch.py"
+  echo "   It computes every comparison these stages exist to make. Send me its"
+  echo "   output as well as the results directories."
+fi
 if [ ${#FAILED[@]} -eq 0 ]; then
   ok "all attempted stages completed"
   exit 0

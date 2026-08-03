@@ -68,11 +68,26 @@ Send back: `results_rigor/capacity_vs_lstruct_extended.csv`
 Four more stages, all from supervisor feedback. Run them in this order.
 
 ```
-STAGE=10 bash RUN_MUSTRUNS.sh     # ~1 h GPU  -- raw-dimension L_struct + perplexity
+STAGE=10 bash RUN_MUSTRUNS.sh     # ~1 h GPU  -- raw L_struct + perplexity
+STAGE=14 bash RUN_MUSTRUNS.sh     # ~2 h CPU  -- Simon & Zou's metric, exactly
 STAGE=12 bash RUN_MUSTRUNS.sh     # ~1 h CPU  -- matched contact-map nulls
-STAGE=11 bash RUN_MUSTRUNS.sh     # ~1 h CPU  -- pairwise contact probes
+STAGE=11 bash RUN_MUSTRUNS.sh     # ~1 h CPU  -- pairwise probes (needs 10 first)
+STAGE=15 bash RUN_MUSTRUNS.sh     # ~1 h GPU  -- matched untrained baseline
 STAGE=13 bash RUN_MUSTRUNS.sh     # ~2 h CPU  -- continuous separation sweep
 ```
+
+Order matters in one place: **10 before 11**. Stage 10 writes the raw activations
+that stage 11's raw arm needs, and that arm is the half that answers the reviewer.
+If you run 11 first it will say so in red rather than skipping quietly.
+
+Then, whatever you ran:
+
+```
+.venv/bin/python summarize_reviewer_batch.py
+```
+
+Send me its output too — it does all the comparisons, so neither of us has to do
+them by hand. That is where the mistakes have been.
 
 Send back: `results_raw_coactivation/`, `results_contact_null/`,
 `results_pairwise_probe/`, `results_sep_continuous/`

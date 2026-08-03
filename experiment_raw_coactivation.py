@@ -132,6 +132,12 @@ def main():
     ap.add_argument("--n-jobs", type=int, default=-1)
     ap.add_argument("--topk-frac", type=float, default=0.10)
     ap.add_argument("--skip-perplexity", action="store_true")
+    ap.add_argument("--save-raw", action="store_true",
+                    help="write X.npy (float16) beside the layer dir. Stage 11's raw "
+                         "arm needs it and NOTHING else in the repo produces it. "
+                         "~188 MB per cell.")
+    ap.add_argument("--raw-out-root", default=None,
+                    help="where --save-raw writes: <root>/<name>/layer_<L>/X.npy")
     ap.add_argument("--device", default="auto")
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
@@ -179,6 +185,16 @@ def main():
         for L in [int(x) for x in args.layers.split(",")]:
             X = extract_layer(model, uids, seqs, L, aa2id, bos, eos, pad, device)
             X = np.asarray(X, dtype=np.float32)
+            if args.save_raw:
+                root = Path(args.raw_out_root or "outputs_raw")
+                cell = root / args.name / f"layer_{L}"
+                cell.mkdir(parents=True, exist_ok=True)
+                np.save(cell / "X.npy", X.astype(np.float16))
+                (cell / "uids.json").write_text(json.dumps(uids))
+                np.save(cell / "lengths.npy", lengths)
+                (cell / "sequences.json").write_text(
+                    json.dumps({u: seqs[u] for u in uids}))
+                print(f"    saved raw activations -> {cell}/X.npy")
             r = struct_delta_on_matrix(X, uids, lengths, ref_seqs, args.pdb_dir,
                                        args.cutoff, args.seq_gap, args.n_shuffles,
                                        args.n_jobs, args.topk_frac)
