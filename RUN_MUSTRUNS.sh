@@ -32,7 +32,8 @@ if [ -z "${STAGE:-}" ]; then
     STAGE=13 CPU, ~2 h               continuous separation sweep
     STAGE=7  GPU, ~2 h               dictionary-seed variation
     STAGE=8  GPU, ~1 h               capacity sweep to overlapping val_EV
-    STAGE=5  GPU, 1-2 DAYS           shuffled training at seeds 43/44
+    STAGE=5  GPU, 1-2 DAYS           shuffled training at seeds 43/44 (training only)
+    STAGE=16 GPU, ~5.5 h             evaluate those checkpoints -- REQUIRED after 5
     STAGE=14 CPU, ~2 h               Simon & Zou's metric, exactly as published
     STAGE=15 GPU, ~1 h               matched untrained baseline
     STAGE=all                        really run everything
@@ -212,13 +213,21 @@ if [ "$STAGE" = 5 ]; then
   else ok "shuffled corpus present"; fi
   for s in 43 44; do
     for obj in mlm clm; do
-      out="$HOME/own_sae_data/uniref50_pilot_shuf/ckpt_${obj}_s${s}"
-      [ -d "$out" ] && { ok "${obj}_s${s} cached"; continue; }
+      # Naming MUST match the seed-42 tree or nothing downstream finds these. That
+      # tree is ckpt_clm_s42 and ckpt_mlm_s42_token -- the _token suffix marks the
+      # token-matched protocol, which is the default (--match-predictions gives the
+      # other one). Writing ckpt_mlm_s43 instead of ckpt_mlm_s43_token would leave
+      # the checkpoints invisible to every stage that globs on $MLM.
+      sfx=""; [ "$obj" = mlm ] && sfx="_token"
+      out="$HOME/own_sae_data/uniref50_pilot_shuf/ckpt_${obj}_s${s}${sfx}"
+      [ -d "$out" ] && { ok "${obj}_s${s}${sfx} cached"; continue; }
       run "s5_${obj}_s${s}" "$PY" train_ctrl_plm.py \
         --data-dir "$SHUF_DATA" --objective "$obj" --seed "$s" \
         --data-order-seed 1234 --out-dir "$out"
     done
   done
+  echo "   TRAINING ONLY. These checkpoints produce no numbers until STAGE=16 runs"
+  echo "   the evaluation over them. Table 1 stays seed-42 until then."
 fi
 
 
@@ -627,6 +636,46 @@ if [ "$STAGE" = 0 ] || [ "$STAGE" = 15 ]; then
     --arms "$MLM,$CLM" --eval-set eval_set --randomize-model --out "$out"
   echo "   this is the null for every L_struct, concept-F1 and probe number in the"
   echo "   paper. compare AUROC and concept-F1 against the trained trees."
+fi
+
+# ---------------------------------------------------------------------------
+# STAGE 16 — evaluate the seeds-43/44 shuffled checkpoints.  REQUIRED AFTER STAGE 5.
+#
+# WHY: stage 5 only TRAINS. A checkpoint on disk produces no numbers. Every shuffled
+# figure in the paper -- Table 1's 18 cells, the L_seq collapse, the shuffled/real
+# ratios -- comes from struct_seq_metrics.csv, which only exists after
+# eval_ctrl_plm.py has extracted activations, fitted an SAE and computed the metric
+# per depth. Without this stage, stage 5 buys nothing and the central validity claim
+# stays at one training run per arm.
+#
+# The real-model side already exists at three seeds, so this only fills the shuffled
+# half and the seeds then pair up.
+#
+# COST: 2 seeds x 2 arms x 9 depths = 36 SAE fits at ~9 min = ~5.5 h GPU.
+# Set DEPTHS=11,14,18 to do the three load-bearing depths first (~2 h) and decide
+# whether the full grid is worth it from those.
+# ---------------------------------------------------------------------------
+if [ "$STAGE" = 0 ] || [ "$STAGE" = 16 ]; then
+  say "STAGE 16 — evaluate shuffled seeds 43/44 (run after STAGE=5)"
+  D16="${DEPTHS:-0,4,7,11,14,18,22,26,29}"
+  echo "   depths: $D16   (override with DEPTHS=11,14,18 for the short version)"
+  for s in 43 44; do
+    for obj in mlm clm; do
+      sfx=""; [ "$obj" = mlm ] && sfx="_token"
+      arm="ckpt_${obj}_s${s}${sfx}"
+      ck="$HOME/own_sae_data/uniref50_pilot_shuf/$arm/model_final.pt"
+      [ -f "$ck" ] || { bad "no shuffled checkpoint for $arm -- run STAGE=5 first"; continue; }
+      for L in ${D16//,/ }; do
+        [ -f "$CTRL_SHUF/$arm/layer_$L/struct_seq_metrics.csv" ] && \
+          { ok "$arm L$L cached"; continue; }
+        run "s16_${arm}_L${L}" "$PY" eval_ctrl_plm.py \
+          --ckpt "$ck" --name "$arm" --layer "$L" --out-root "$CTRL_SHUF" \
+          --eval-set eval_set --sae-seed 42 --expansion 8 --k-sparse 256
+      done
+    done
+  done
+  echo "   after this, Table 1's shuffled/real ratios can be recomputed at 3 seeds"
+  echo "   and the invalidity result stops being n=1 per arm."
 fi
 
 say "summary"
