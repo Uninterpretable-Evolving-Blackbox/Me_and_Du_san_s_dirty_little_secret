@@ -609,7 +609,24 @@ if [ "$STAGE" = 0 ] || [ "$STAGE" = 15 ]; then
         --expansion 8 --k-sparse 256
     done
   done
-  echo "   this is the null for every L_struct and concept-F1 number in the paper."
+  # The L_struct half is only a third of the point. The interpretability claim rests
+  # on concept-F1 and the probe numbers, so both need the same untrained null or the
+  # comparison is still against ESM-2.
+  for arm in "$MLM" "$CLM"; do
+    for L in ${LAYERS//,/ }; do
+      LD="outputs_ctrl_randominit/$arm/layer_$L"
+      [ -f "$LD/Z.npy" ] || continue
+      CF="results_concept_f1_randominit/$arm/layer_$L"
+      [ -f "$CF/concept_f1.csv" ] || run "s15_cf1_${arm}_L${L}" "$PY" experiment_concept_f1.py \
+        --layer-dir "$LD" --save-dir "$CF" --features-csv cache/residue_features.csv \
+        --fasta-path cache/scope_40.fa --split-level protein
+    done
+  done
+  out=results_ctrl_saefree_randominit
+  [ -f "$out/saefree_by_arm.csv" ] || run "s15_probes_randominit" "$PY" eval_ctrl_saefree.py \
+    --arms "$MLM,$CLM" --eval-set eval_set --randomize-model --out "$out"
+  echo "   this is the null for every L_struct, concept-F1 and probe number in the"
+  echo "   paper. compare AUROC and concept-F1 against the trained trees."
 fi
 
 say "summary"

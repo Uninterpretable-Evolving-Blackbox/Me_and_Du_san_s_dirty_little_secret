@@ -240,6 +240,8 @@ def main():
                          "test for the main result: if the mid-depth reversal disappears, it was "
                          "linear separability rather than information content.")
     ap.add_argument("--skip-contacts", action="store_true")
+    ap.add_argument("--randomize-model", action="store_true",
+                    help="do not load trained weights; matched untrained probe baseline")
     args = ap.parse_args()
 
     dev = pick_device(args.device)
@@ -266,7 +268,14 @@ def main():
         ck = torch.load(str(ck_path), map_location="cpu")
         cfg, meta = ck["cfg"], ck["meta"]
         model = CtrlESMC(**cfg)
-        model.load_state_dict(ck["model"])
+        if getattr(args, "randomize_model", False):
+            # Matched untrained null for the probe numbers. The only random-weight
+            # baseline this project had was on ESM-2, which differs in architecture,
+            # width and tokeniser, so it confounded "untrained" with "different model".
+            torch.manual_seed(42)
+            print("RANDOMIZING MODEL WEIGHTS -- untrained probe baseline")
+        else:
+            model.load_state_dict(ck["model"])
         model = model.to(dev)
         print(f"\n=== {arm} | causal={cfg['causal']} | d_model={cfg['d_model']} "
               f"| blocks={cfg['n_layers']} ===")
