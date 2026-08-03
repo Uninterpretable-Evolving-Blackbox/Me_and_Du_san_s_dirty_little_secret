@@ -136,6 +136,8 @@ def main():
     ap.add_argument("--sae-epochs", type=int, default=60)
     ap.add_argument("--expansion", type=int, default=8)     # paper: 8x
     ap.add_argument("--k-sparse", type=int, default=256)    # paper: k=256
+    ap.add_argument("--randomize-model", action="store_true",
+                    help="do not load trained weights; matched untrained baseline")
     ap.add_argument("--sae-seed", type=int, default=42,
                     help="SAE init seed; paper's main grid is 42 (43/44 = robustness)")
     ap.add_argument("--per-token-norm", action="store_true",
@@ -161,7 +163,16 @@ def main():
     ck = torch.load(args.ckpt, map_location="cpu")
     cfg, meta = ck["cfg"], ck["meta"]
     model = CtrlESMC(**cfg)
-    model.load_state_dict(ck["model"])
+    if args.randomize_model:
+        # Matched random baseline: same architecture, same width, same tokeniser,
+        # same SAE pipeline -- weights never trained. This is the null the concept-F1
+        # and L_struct numbers actually need. The existing random baseline was run on
+        # ESM-2 with random weights, which differs in architecture, width and SAE, so
+        # it confounds "untrained" with "different model".
+        torch.manual_seed(args.sae_seed)
+        print(f"RANDOMIZING MODEL WEIGHTS (seed {args.sae_seed}) -- untrained baseline")
+    else:
+        model.load_state_dict(ck["model"])
     model = model.to(dev)
     print(f"loaded {args.name} step={ck.get('step')} tokens={ck.get('tokens',0)/1e6:.0f}M | "
           f"block {args.layer}/{cfg['n_layers']} | d_model {cfg['d_model']} | "

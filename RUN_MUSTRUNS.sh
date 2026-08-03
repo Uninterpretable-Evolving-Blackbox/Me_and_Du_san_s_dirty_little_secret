@@ -33,6 +33,8 @@ if [ -z "${STAGE:-}" ]; then
     STAGE=7  GPU, ~2 h               dictionary-seed variation
     STAGE=8  GPU, ~1 h               capacity sweep to overlapping val_EV
     STAGE=5  GPU, 1-2 DAYS           shuffled training at seeds 43/44
+    STAGE=14 CPU, ~2 h               Simon & Zou's metric, exactly as published
+    STAGE=15 GPU, ~1 h               matched untrained baseline
     STAGE=all                        really run everything
 
   See START_HERE.md.
@@ -536,6 +538,78 @@ if [ "$STAGE" = 0 ] || [ "$STAGE" = 13 ]; then
       --cutoffs 6 --gaps "$GAPS" --n-shuffles 5 --out "$out"
   done
   echo "   plot d against gap. the interesting region is 2-6, where the sign flips."
+fi
+
+# ---------------------------------------------------------------------------
+# STAGE 14 — Simon & Zou's metric, implemented exactly.  ANSWERS THE MAIN OBJECTION.
+#
+# WHY: the standing criticism is "the metric is introduced in this work, so who is
+# the cautionary tale for?" Nothing run so far answers it -- everything has been OUR
+# estimator, at most borrowing their contact definition, and a failure of our
+# estimator is a fact about our estimator.
+#
+# experiment_interplm_metric.py implements their published procedure verbatim: single
+# highest-activation anchor, absolute gate > 0.6, >= 25 qualifying proteins, <= 100
+# sampled, +-2 sequential neighbours, 6 A Ca structural neighbours, no separation
+# floor, 5 permutations of the activation VALUES, Cohen's d across proteins within a
+# feature, Bonferroni-corrected structural p < 0.05 for selection.
+#
+# THE COMPARISON: real tree versus shuffled tree. If their metric also scores the
+# shuffled models higher, the failure is not specific to our variant and the paper
+# generalises. If it does not, our anchor/gate/aggregation is what breaks -- equally
+# worth knowing, and it narrows the paper considerably.
+#
+# COST: CPU only. ~2 h (the Ca alignment dominates).
+# ---------------------------------------------------------------------------
+if [ "$STAGE" = 0 ] || [ "$STAGE" = 14 ]; then
+  say "STAGE 14 — Simon & Zou's metric, exactly as published"
+  for root in "$CTRL_REAL" "$CTRL_SHUF"; do
+    for arm in "$MLM" "$CLM"; do
+      for L in ${LAYERS//,/ }; do
+        d="$root/$arm/layer_$L"
+        [ -f "$d/Z.npy" ] || { bad "no Z.npy in $d (run STAGE=1 first)"; continue; }
+        out="results_interplm_metric/${root##*/}_${arm}_L${L}.csv"
+        [ -f "$out" ] && { ok "$(basename $out) cached"; continue; }
+        run "s14_${root##*/}_${arm}_L${L}" "$PY" experiment_interplm_metric.py \
+          --layer-dir "$d" --out "$out"
+      done
+    done
+  done
+  echo "   compare mean d_struct and the count of significant structural features"
+  echo "   between outputs_ctrl and outputs_ctrl_shuf. that is the whole point."
+fi
+
+# ---------------------------------------------------------------------------
+# STAGE 15 — matched untrained baseline.
+#
+# WHY: the concept-F1 and L_struct numbers currently have no properly matched null.
+# The existing random baseline was run on ESM-2 with randomised weights, which
+# differs from our models in architecture, width and SAE, so it confounds "untrained"
+# with "different model". On that comparison a single sparse feature scored 0.69 on
+# helix against 0.61 for the random model -- a gap small enough that it cannot carry
+# an interpretability claim, but the comparison was never apples-to-apples.
+#
+# This runs the identical pipeline on the identical architecture with weights that
+# were never trained. Anything the trained models do not beat here, they have not
+# demonstrated.
+#
+# COST: SAE training per cell, ~9 min. 3 layers x 2 arms = ~1 h GPU.
+# ---------------------------------------------------------------------------
+if [ "$STAGE" = 0 ] || [ "$STAGE" = 15 ]; then
+  say "STAGE 15 — matched untrained baseline (same architecture, no training)"
+  for arm in "$MLM" "$CLM"; do
+    for L in ${LAYERS//,/ }; do
+      root=outputs_ctrl_randominit
+      [ -f "$root/$arm/layer_$L/struct_seq_metrics.csv" ] && { ok "$arm L$L cached"; continue; }
+      ck="$HOME/own_sae_data/uniref50_pilot/$arm/model_final.pt"
+      [ -f "$ck" ] || { bad "no checkpoint for $arm (needed for its config)"; continue; }
+      run "s15_${arm}_L${L}" "$PY" eval_ctrl_plm.py \
+        --ckpt "$ck" --name "$arm" --layer "$L" --out-root "$root" \
+        --eval-set eval_set --randomize-model --sae-seed 42 \
+        --expansion 8 --k-sparse 256
+    done
+  done
+  echo "   this is the null for every L_struct and concept-F1 number in the paper."
 fi
 
 say "summary"
