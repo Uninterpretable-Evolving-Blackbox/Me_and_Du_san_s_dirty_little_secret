@@ -114,19 +114,28 @@ def ca_coords_for(uid, Lr, ref_seq, pdb_dir):
 
 
 def feature_block(Z, f0, f1, coords, spans, rng_seed, gate, min_prot, max_prot,
-                  cutoff, n_perm):
+                  cutoff, n_perm, normalise=True):
     """Their metric for features [f0, f1)."""
     rng = np.random.default_rng(rng_seed + f0)
     rows = []
     for f in range(f0, f1):
         a_all = np.asarray(Z[:, f], dtype=np.float32)
+        # Their "Feature normalization": each feature is divided by its maximum over
+        # the WHOLE corpus, so every feature lies in [0,1], and the 0.6 gate is then
+        # absolute on that scale. Dividing by the per-protein max instead (which the
+        # first version did) is a third thing matching neither reading -- for a
+        # feature whose corpus max is 28.4 it makes the effective threshold 17.0.
+        if normalise:
+            fmax = float(a_all.max())
+            if fmax > 0:
+                a_all = a_all / fmax
         seq_o, str_o, seq_n, str_n = [], [], [], []
         qualifying = []
         for k, (lo, hi) in enumerate(spans):
             a = a_all[lo:hi]
             if coords[k] is None or not np.isfinite(a).all() or a.max() <= 0:
                 continue
-            if (a > gate * a.max() if gate <= 1 else a > gate).sum() < 1:
+            if (a > gate).sum() < 1:      # a is already globally normalised
                 continue
             qualifying.append(k)
         if len(qualifying) < min_prot:                 # their >= 25 proteins rule
@@ -178,7 +187,10 @@ def main():
     ap.add_argument("--pdb-dir", default="cache/pdb_files")
     ap.add_argument("--cutoff", type=float, default=6.0)      # their 6 A
     ap.add_argument("--gate", type=float, default=0.6)        # their > 0.6
-    ap.add_argument("--gate-mode", choices=["normalised", "raw"], default="normalised")
+    ap.add_argument("--gate-mode", choices=["global", "raw"], default="global",
+                    help="global: divide each feature by its corpus-wide max, then "
+                         "apply --gate absolutely -- this is what the Methods describe. "
+                         "raw: apply --gate to unnormalised activations.")
     ap.add_argument("--min-proteins", type=int, default=25)   # their >= 25
     ap.add_argument("--max-proteins", type=int, default=100)  # their <= 100
     ap.add_argument("--n-perm", type=int, default=5)          # their 5
@@ -207,13 +219,14 @@ def main():
     coords = [c if np.isfinite(c).any() else None for c in coords]
     print(f"  {sum(c is not None for c in coords)} with usable coordinates")
 
-    gate = args.gate if args.gate_mode == "raw" else min(args.gate, 1.0)
+    gate = args.gate
     nF = Z.shape[1] if args.max_features == 0 else min(args.max_features, Z.shape[1])
     step = 64
     out = Parallel(n_jobs=args.n_jobs)(
         delayed(feature_block)(Z, f, min(f + step, nF), coords, spans, args.seed,
                                gate, args.min_proteins, args.max_proteins,
-                               args.cutoff, args.n_perm)
+                               args.cutoff, args.n_perm,
+                               args.gate_mode == "global")
         for f in range(0, nF, step))
     df = pd.DataFrame([r for blk in out for r in blk])
 

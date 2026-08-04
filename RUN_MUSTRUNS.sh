@@ -66,7 +66,10 @@ LAYERS="${LAYERS:-11,14,18}"
 # There is no `python` on PATH in a non-interactive shell on the RTX box, so every
 # stage died instantly with "command not found" the first time this ran. Resolve an
 # interpreter explicitly, matching the other scripts in this repo.
-PY="${PY:-$PWD/.venv/bin/python}"
+# -u: joblib writes progress to stderr (unbuffered) but result lines go to stdout,
+# which is block-buffered when redirected -- stage 9 once ran 49 minutes without
+# emitting a single line. Unbuffer so progress is visible while a stage runs.
+PY="${PY:-$PWD/.venv/bin/python -u}"
 [ -x "$PY" ] || PY="$(command -v python3 || command -v python)"
 [ -n "$PY" ] || { echo "!! no python interpreter found; set PY=/path/to/python"; exit 2; }
 echo "   interpreter: $PY"
@@ -221,9 +224,16 @@ if [ "$STAGE" = 5 ]; then
       sfx=""; [ "$obj" = mlm ] && sfx="_token"
       out="$HOME/own_sae_data/uniref50_pilot_shuf/ckpt_${obj}_s${s}${sfx}"
       [ -d "$out" ] && { ok "${obj}_s${s}${sfx} cached"; continue; }
+      # --target-tokens and --warmup MUST be given. The script defaults are 700e6
+      # and 200; every model in this project, including the seed-42 shuffled pair
+      # these are compared against, used 660e6 and warmup 500 (run_full_ctrl.sh:45,49).
+      # Taking the defaults would put seeds 43/44 on a 6% larger budget and a
+      # different schedule, silently invalidating the multi-seed comparison that is
+      # the entire point of the stage.
       run "s5_${obj}_s${s}" "$PY" train_ctrl_plm.py \
         --data-dir "$SHUF_DATA" --objective "$obj" --seed "$s" \
-        --data-order-seed 1234 --out-dir "$out"
+        --data-order-seed 1234 --target-tokens 659996672 --warmup 500 \
+        --out-dir "$out"
     done
   done
   echo "   TRAINING ONLY. These checkpoints produce no numbers until STAGE=16 runs"

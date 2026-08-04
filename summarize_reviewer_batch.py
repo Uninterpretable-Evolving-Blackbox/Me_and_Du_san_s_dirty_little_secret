@@ -73,10 +73,14 @@ def stage9(root="."):
     key = [c for c in ("layer", "cutoff_A", "seq_gap") if c in A.columns]
     m = A.merge(B, on=key, suffixes=("_n5", "_n25"))
     m["abs_change"] = (m.d_n25 - m.d_n5).abs()
-    m["pct_change"] = 100 * m.abs_change / m.d_n5.abs().clip(lower=1e-9)
-    print(m[key + ["d_n5", "d_n25", "abs_change", "pct_change"]].round(4).to_string(index=False))
-    print(f"\n  median |change| {m.abs_change.median():.4f}  "
-          f"({m.pct_change.median():.1f}% of the effect)")
+    # NB "pct_change" as an attribute collides with DataFrame.pct_change, so these
+    # are read with [] rather than dot access. That collision silently turned the
+    # summary line into an AttributeError on the first real run.
+    m["pct_shift"] = 100 * m["abs_change"] / m.d_n5.abs().clip(lower=1e-9)
+    print(m[key + ["d_n5", "d_n25", "abs_change", "pct_shift"]].round(4).to_string(index=False))
+    print(f"\n  median |change| {m['abs_change'].median():.4f}  "
+          f"({m['pct_shift'].median():.1f}% of the effect)   "
+          f"max {m['abs_change'].max():.4f}   sign changes {(m.d_n5*m.d_n25 < 0).sum()}/{len(m)}")
     print("  A material move means five draws do not estimate the null tightly enough.")
 
 
@@ -229,7 +233,12 @@ def stage16(root="."):
     print("\n  ratio across seeds:")
     print(g.round(4).to_string())
     print(f"\n  cells with ratio > 1: {(df.ratio > 1).sum()} / {len(df)}")
-    print("  This is what takes the invalidity result off n=1 per arm.")
+    n_seeds = df.seed.nunique()
+    if n_seeds < 2:
+        print(f"\n  !! ONLY SEED {df.seed.iloc[0]} PRESENT. Stage 5 trains the extra seeds and")
+        print("     stage 16 evaluates them; neither has run, so this is still n=1 per arm.")
+    else:
+        print(f"\n  {n_seeds} seeds present -- the invalidity result is no longer n=1 per arm.")
 
 
 def main():
