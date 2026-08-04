@@ -67,14 +67,17 @@ def sample_pairs(struct_adj, lengths, offsets, rng, n_per_class, seq_gap,
                 pos.append((r, n))
     if not pos:
         raise SystemExit("no contacts in graph")
+    # Build the rejection set from ALL contacts, BEFORE subsampling. Deriving it from
+    # the truncated list lets any unsampled contact be drawn as a negative, which
+    # biases AUROC and AP downward -- concentrated near the separation floor, exactly
+    # where separation-matched sampling puts most of its mass.
+    contact = set(pos) | {(b, a) for a, b in pos}
     rng.shuffle(pos)
     pos = pos[:n_per_class]
 
     prot_of = np.zeros(int(np.sum(lengths)), dtype=np.int64)
     for p, (o, L) in enumerate(zip(offsets, lengths)):
         prot_of[o:o + int(L)] = p
-    contact = set(pos) | {(b, a) for a, b in pos}
-
     neg = []
     for (a, b) in pos:
         sep_target = abs(b - a)
@@ -94,17 +97,21 @@ def sample_pairs(struct_adj, lengths, offsets, rng, n_per_class, seq_gap,
     return pos[:n], neg[:n], prot_of
 
 
-def evaluate(X, pos, neg, prot_of, rng, shuffle_labels=False):
+def evaluate(X, pos, neg, prot_of, rng, shuffle_labels=False, split_seed=1234):
     P = np.array(pos); N = np.array(neg)
     Fp = pair_features(X, P[:, 0], P[:, 1])
     Fn = pair_features(X, N[:, 0], N[:, 1])
     F = np.vstack([Fp, Fn])
     y = np.concatenate([np.ones(len(Fp)), np.zeros(len(Fn))])
     prot = np.concatenate([prot_of[P[:, 0]], prot_of[N[:, 0]]])
+    # Draw the split from its OWN generator. Sharing one rng meant the label
+    # permutation advanced it, so the control ran on a different protein partition
+    # than the real fit -- the Hewitt & Liang control requires the split held fixed.
+    split_rng = np.random.default_rng(split_seed)
     if shuffle_labels:
         y = rng.permutation(y)
 
-    prots = np.unique(prot); rng.shuffle(prots)
+    prots = np.unique(prot); split_rng.shuffle(prots)
     te_p = set(prots[: max(1, len(prots) // 5)])          # split BY PROTEIN
     te = np.array([p in te_p for p in prot])
     if te.sum() < 20 or (~te).sum() < 20 or len(np.unique(y[~te])) < 2:

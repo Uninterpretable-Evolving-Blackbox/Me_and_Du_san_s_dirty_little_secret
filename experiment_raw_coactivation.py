@@ -89,20 +89,28 @@ def struct_delta_on_matrix(X, uids, lengths, ref_seqs, pdb_dir,
 
 
 @torch.no_grad()
-def perplexity(model, uids, seqs, aa2id, bos, eos, pad, device, causal, max_prot=150):
+def perplexity(model, uids, seqs, aa2id, bos, eos, pad, device, causal,
+               max_prot=150, mask_id=None):
     """exp(mean NLL per residue) on held-out proteins.
 
     causal=True  -> true left-to-right perplexity.
     causal=False -> PSEUDO-perplexity, one masked position at a time. Different
                     quantity; never compare the two across arms.
     """
-    mask_id = aa2id.get("<mask>", aa2id.get("X"))
+    # aa2id holds only the 20 standard amino acids; the mask token is recorded
+    # separately as meta["mask"] by train_ctrl_plm.py. Falling back to the old
+    # lookup would give None and kill the masked branch at `xm[0, i] = mask_id`.
+    if mask_id is None:
+        mask_id = aa2id.get("<mask>", aa2id.get("X"))
     tot_nll, tot_n = 0.0, 0
     for uid in uids[:max_prot]:
         ids = [bos] + [aa2id.get(c, aa2id.get("X")) for c in seqs[str(uid)]] + [eos]
         x = torch.tensor([ids], device=device)
         if causal:
-            logits = model(x)["logits"] if isinstance(model(x), dict) else model(x)
+            # batch of 1, no padding -> the attention mask is all ones.
+            # CtrlESMC.forward returns a tensor, so the old dict branch was dead
+            # code that also ran the model twice per protein.
+            logits = model(x, torch.ones_like(x))
             lp = torch.log_softmax(logits[0, :-1].float(), -1)
             tgt = x[0, 1:]
             tot_nll += float(-lp[torch.arange(len(tgt)), tgt].sum()); tot_n += len(tgt)
@@ -110,7 +118,7 @@ def perplexity(model, uids, seqs, aa2id, bos, eos, pad, device, causal, max_prot
             L = x.shape[1]
             for i in range(1, L - 1):                      # skip BOS/EOS
                 xm = x.clone(); xm[0, i] = mask_id
-                out = model(xm)
+                out = model(xm, torch.ones_like(xm))
                 logits = out["logits"] if isinstance(out, dict) else out
                 lp = torch.log_softmax(logits[0, i].float(), -1)
                 tot_nll += float(-lp[x[0, i]]); tot_n += 1
@@ -165,25 +173,42 @@ def main():
         from eval_ctrl_plm import load_eval_set, extract_layer, pick_device
         device = pick_device(args.device)
         ck = torch.load(args.ckpt, map_location=device)
-        model = CtrlESMC(**ck["config"]) if "config" in ck else CtrlESMC()
+        # train_ctrl_plm.py stores the model config under "cfg", not "config";
+        # eval_ctrl_plm.py:164 and eval_ctrl_saefree.py:270 both read "cfg".
+        # The old CtrlESMC() fallback cannot work -- vocab_size is required.
+        cfg = ck["cfg"] if "cfg" in ck else ck.get("config", {})
+        model = CtrlESMC(**cfg)
         model.load_state_dict(ck["model"] if "model" in ck else ck)
         model.to(device).eval()
-        causal = bool(ck.get("config", {}).get("causal", "clm" in args.name))
+        causal = bool(cfg.get("causal", "clm" in args.name))
 
-        uids, seqs, aa2id, bos, eos, pad = load_eval_set(args.eval_set)
+        # load_eval_set returns (uids, uid2seq, val_uids) -- three values. The
+        # tokenizer fields come from the checkpoint meta, as in eval_ctrl_plm.py:181.
+        uids, seqs, _val_uids = load_eval_set(args.eval_set)
+        meta = ck["meta"]
+        aa2id, bos, eos, pad = (meta["aa2id"], meta["bos"],
+                                meta["eos"], meta["pad"])
         uids = [str(u) for u in uids]
+        # extract_layer indexes sequences positionally, so it needs a list aligned
+        # to uids (eval_ctrl_plm.py:160, eval_ctrl_saefree.py:252). perplexity() and
+        # ref_seqs below still want the dict, so keep both.
+        seq_list = [seqs[u] for u in uids]
         ref_seqs = {u: seqs[u] for u in uids}
         lengths = np.array([len(seqs[u]) for u in uids], dtype=np.int32)
 
         ppl, ppl_n = (None, 0)
         if not args.skip_perplexity:
             ppl, ppl_n = perplexity(model, uids, seqs, aa2id, bos, eos, pad,
-                                    device, causal)
+                                    device, causal, mask_id=meta.get("mask"))
             print(f"  perplexity ({'causal' if causal else 'pseudo, masked'}): "
                   f"{ppl:.3f} over {ppl_n:,} residues")
 
         for L in [int(x) for x in args.layers.split(",")]:
-            X = extract_layer(model, uids, seqs, L, aa2id, bos, eos, pad, device)
+            # extract_layer returns (X, lengths). Its lengths are the ones that
+            # describe X: it truncates at max_len=512, so they can differ from
+            # len(seq) for long proteins.
+            X, lengths = extract_layer(model, uids, seq_list, L,
+                                       aa2id, bos, eos, pad, device)
             X = np.asarray(X, dtype=np.float32)
             if args.save_raw:
                 root = Path(args.raw_out_root or "outputs_raw")

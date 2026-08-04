@@ -69,9 +69,14 @@ LAYERS="${LAYERS:-11,14,18}"
 # -u: joblib writes progress to stderr (unbuffered) but result lines go to stdout,
 # which is block-buffered when redirected -- stage 9 once ran 49 minutes without
 # emitting a single line. Unbuffer so progress is visible while a stage runs.
-PY="${PY:-$PWD/.venv/bin/python -u}"
-[ -x "$PY" ] || PY="$(command -v python3 || command -v python)"
-[ -n "$PY" ] || { echo "!! no python interpreter found; set PY=/path/to/python"; exit 2; }
+# Test the BINARY, then add flags. Baking "-u" into $PY made [ -x "$PY" ] look for a
+# file literally named "python -u", so the test always failed, the venv was always
+# bypassed for system python3, and -u was dropped along with it -- defeating both
+# things this block exists for.
+PY_BIN="${PY_BIN:-$PWD/.venv/bin/python}"
+[ -x "$PY_BIN" ] || PY_BIN="$(command -v python3 || command -v python)"
+[ -n "$PY_BIN" ] || { echo "!! no python interpreter found; set PY_BIN=/path/to/python"; exit 2; }
+PY="${PY:-$PY_BIN -u}"
 echo "   interpreter: $PY"
 
 
@@ -333,6 +338,14 @@ if [ "$STAGE" = 0 ] || [ "$STAGE" = 7 ]; then
         run "s7_dseed${dseed}_${arm}_L${L}" "$PY" eval_ctrl_plm.py \
           --ckpt "$ck" --name "$arm" --layer "$L" --out-root "$root" \
           --eval-set eval_set --sae-seed "$dseed" --expansion 8 --k-sparse 256
+      # eval_ctrl_plm.py writes Z/D/META but NOT struct_seq_metrics.csv -- that is
+      # cpu_stage.py's output. Without this call the stage completes green and
+      # produces no L_struct at all, and its own skip-check (which tests for that
+      # CSV) can never fire, so every resume redoes the SAE fit.
+      [ -f "$root/$arm/layer_$L/struct_seq_metrics.csv" ] || \
+        run "s7_dseed${dseed}_${arm}_L${L}_cpu" $PY cpu_stage.py --layer-dir "$root/$arm/layer_$L" --model-type residue \
+          --n-shuffles 5 --features-csv cache/residue_features.csv \
+          --pdb-dir cache/pdb_files --fasta-path cache/scope_40.fa
       done
     done
   done
@@ -368,6 +381,14 @@ if [ "$STAGE" = 0 ] || [ "$STAGE" = 8 ]; then
           --ckpt "$ck" --name "${MLM}_k${k}_e${e}" --layer 14 \
           --out-root outputs_ctrl_cap --eval-set eval_set \
           --sae-seed 42 --expansion "$e" --k-sparse "$k"
+        # Same gap as stages 7/15/16: eval_ctrl_plm.py fits the SAE but does not
+        # write struct_seq_metrics.csv, and analyze_capacity_lstruct.py reads exactly
+        # that file -- so without this the whole stage produces no dose-response.
+        [ -f "$cell/struct_seq_metrics.csv" ] || \
+          run "s8_${MLM}_k${k}_e${e}_cpu" $PY cpu_stage.py --layer-dir "$cell" \
+            --model-type residue --n-shuffles 5 \
+            --features-csv cache/residue_features.csv --pdb-dir cache/pdb_files \
+            --fasta-path cache/scope_40.fa
       done
     done
     run "s8_analyze" "$PY" analyze_capacity_lstruct.py --root outputs_ctrl_cap --layer 14 \
@@ -630,6 +651,14 @@ if [ "$STAGE" = 0 ] || [ "$STAGE" = 15 ]; then
         --ckpt "$ck" --name "$arm" --layer "$L" --out-root "$root" \
         --eval-set eval_set --randomize-model --sae-seed 42 \
         --expansion 8 --k-sparse 256
+      # eval_ctrl_plm.py writes Z/D/META but NOT struct_seq_metrics.csv -- that is
+      # cpu_stage.py's output. Without this call the stage completes green and
+      # produces no L_struct at all, and its own skip-check (which tests for that
+      # CSV) can never fire, so every resume redoes the SAE fit.
+      [ -f "$root/$arm/layer_$L/struct_seq_metrics.csv" ] || \
+        run "s15_${arm}_L${L}_cpu" $PY cpu_stage.py --layer-dir "$root/$arm/layer_$L" --model-type residue \
+          --n-shuffles 5 --features-csv cache/residue_features.csv \
+          --pdb-dir cache/pdb_files --fasta-path cache/scope_40.fa
     done
   done
   # The L_struct half is only a third of the point. The interpretability claim rests
@@ -685,6 +714,14 @@ if [ "$STAGE" = 0 ] || [ "$STAGE" = 16 ]; then
         run "s16_${arm}_L${L}" "$PY" eval_ctrl_plm.py \
           --ckpt "$ck" --name "$arm" --layer "$L" --out-root "$CTRL_SHUF" \
           --eval-set eval_set --sae-seed 42 --expansion 8 --k-sparse 256
+      # eval_ctrl_plm.py writes Z/D/META but NOT struct_seq_metrics.csv -- that is
+      # cpu_stage.py's output. Without this call the stage completes green and
+      # produces no L_struct at all, and its own skip-check (which tests for that
+      # CSV) can never fire, so every resume redoes the SAE fit.
+      [ -f "$CTRL_SHUF/$arm/layer_$L/struct_seq_metrics.csv" ] || \
+        run "s16_${arm}_L${L}_cpu" $PY cpu_stage.py --layer-dir "$CTRL_SHUF/$arm/layer_$L" --model-type residue \
+          --n-shuffles 5 --features-csv cache/residue_features.csv \
+          --pdb-dir cache/pdb_files --fasta-path cache/scope_40.fa
       done
     done
   done
