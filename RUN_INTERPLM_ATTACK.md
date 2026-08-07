@@ -27,12 +27,35 @@ planning figure and not a promise:
 | `setup` | once | 2–3 h | measured |
 | embedding | 54 passes (9 models × 3 layers × {analysis, train}) | minutes | GPU, forward only |
 | SAE training | 81 | ~10–20 min | **estimated** |
-| `compare_activations` | 162 (81 cells × valid/test) | **~5 min** | measured, running alone |
+| `compare_activations` | 648 (81 cells × 8 shards) | **~6 min/shard at 1,280 features** | measured 2026-08-07, see below |
 | `calculate_f1`, `report_metrics`, `aa_floor` | 81 each | seconds | — |
 
-`compare_activations` alone is ~13 h and is the floor. It is single-threaded, so
-`xargs -P 3` over cells cuts the wall clock roughly threefold — but size N against RAM,
-not cores (each peaks at 12–15 GB; 6-way turned a 5-minute job into 187 minutes).
+**CORRECTION (2026-08-07).** An earlier version of this file said `compare_activations`
+was "~5 min" per split and put the floor at ~13 h. That was wrong by roughly 5x — the
+5-minute figure came from a much smaller configuration. Measured directly while running
+the same code on RITA_l over the same annotation set:
+
+```
+Calculating over 12288 features in 50 chunks   ->  ~72 s/chunk  =  60 min per shard
+                                                   =  0.293 s per feature per shard
+```
+
+The cost is linear in **features x shards**, so at `CTRL_EXP=4` (1,280 features):
+
+```
+1,280 x 0.293 s = ~6.2 min/shard  ->  ~50 min/cell (8 shards)  ->  ~68 h for 81 cells
+```
+
+So the grid is **~3 days serial on hardware like ours**, not 1-2. It is single-threaded,
+so `xargs -P 3` over cells brings that to roughly a day — but size N against RAM, not
+cores (each peaks at 12-15 GB; 6-way turned a 5-minute job into 187 minutes).
+
+That 0.293 s/feature/shard was measured on an Apple M-series CPU. Rescale it on your own
+box from the first cell rather than trusting it: watch the `n/50` chunk pacing in the
+first `compare_activations` and multiply out before committing to the full grid. **If it
+comes out far above 3 days, stop and tell me** — the honest options are then fewer seeds
+(3 -> 1, cutting it threefold) or fewer layers, and that is a call to make before burning
+the time, not after.
 
 **It resumes, but only because guards were added on 2026-08-07 — an earlier version of
 this file claimed resumability it did not have.** The `.done` sentinels cover the
