@@ -61,14 +61,32 @@ The chunks are independent, but parallelising inside their loop would mean editi
 code, which the one rule forbids. Cells are independent too, and running several *processes*
 does not touch their code at all:
 
-| concurrency | grid wall clock | process RAM |
-|---|---|---|
-| serial | 67 h | 14 GB |
-| `-P 4` | **17 h** | 56 GB |
-| `-P 6` | 11 h | 84 GB |
-| `-P 8` | 8 h | 112 GB |
+| concurrency | grid wall clock | process RAM | + ~24 GB embeddings | fits in 96 GB? |
+|---|---|---|---|---|
+| serial | 67 h | 14 GB | 38 GB | yes |
+| `-P 3` | **22 h** | 42 GB | 66 GB | **yes — start here** |
+| `-P 4` | 17 h | 56 GB | 80 GB | tight, watch it |
+| `-P 6` | 11 h | 84 GB | 108 GB | **no** |
 
-**Use `-P 4` unless you have watched it.** Two reasons to be conservative rather than
+Pick N from your own free RAM rather than from this table:
+
+```
+N = (total_GB - 24 - 16) / 14
+      |          |     |     |
+      |          |     |     +-- ~14 GB per compare_activations process (measured)
+      |          |     +-------- headroom for the OS and everything else
+      |          +-------------- memmapped embeddings, in page cache, per model
+      +------------------------- your box: 96
+```
+
+giving **N = 4** at 96 GB. I have written 3 above because that leaves room to be wrong
+about the 24 GB, and going from 3 to 4 buys 5 hours while a thrash costs a day.
+
+One thing in your favour: the 187-minute disaster was on **macOS**, whose memory compressor
+fights back hard. On Linux the page-cached embeddings are cleanly evictable, so you should
+degrade more gracefully than we did. That is a reason to try 4, not a reason to try 6.
+
+**Start at `-P 3`, confirm from output, then raise it if you want.** Two reasons to be conservative rather than
 greedy: each process is 12–15 GB, *and* the memmapped embeddings (~24 GB per model) sit in
 page cache competing for the same RAM. That combination is almost certainly what turned a
 5-minute job into 187 minutes at 6-way before — 6x14 GB plus a 24 GB working set on a
