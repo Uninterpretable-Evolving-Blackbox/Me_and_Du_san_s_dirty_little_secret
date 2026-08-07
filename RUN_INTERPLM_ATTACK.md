@@ -58,8 +58,39 @@ scipy sparse path. **The CUDA branch at `:184` is only reached by the dense/neur
 your GPU does nothing for this step.** Same bottleneck on both our boxes.
 
 The chunks are independent, but parallelising inside their loop would mean editing their
-code, which the one rule forbids. Cells are independent too, and running several *processes*
-does not touch their code at all:
+code, which the one rule forbids.
+
+**`xargs -P` does not apply here** — `grid()` is a single serial nested loop, not a list of
+cell invocations, so there is nothing for `xargs` to fan out over. (An earlier version of
+this file said otherwise. It was wrong.)
+
+**Split by layer instead.** `LAYERS` is overridable at line 43, and every path the grid
+writes is layer-scoped — `embd_analysis/$NAME/L$LAYER`, `embd_train/$NAME/L$LAYER`,
+`models/grid/${NAME}_L${LAYER}_s${S}`, `results/grid/<tag>_<split>`, and the `rm -rf`
+cleanup. So three instances cannot collide, and no code changes:
+
+```bash
+LAYERS=11 nohup ./RUN_INTERPLM_STRESS.sh grid > $BASE/results/grid_L11.log 2>&1 &
+LAYERS=14 nohup ./RUN_INTERPLM_STRESS.sh grid > $BASE/results/grid_L14.log 2>&1 &
+LAYERS=18 nohup ./RUN_INTERPLM_STRESS.sh grid > $BASE/results/grid_L18.log 2>&1 &
+```
+
+Two things that *are* shared: `results/sae_quality.txt` and `results/concept_f1.txt` are
+opened in append mode by all three, so expect interleaved lines. Each line carries its own
+tag, so nothing is ambiguous — but do not assume the file is ordered.
+
+**Disk, not RAM, is the binding constraint for this split.** Serial holds ~23 GB of
+embeddings at a time; three layers in flight hold ~69 GB. Check `df -h $BASE` for **120 GB
+free** before launching three. RAM is the easy part: ~14 GB resident per scoring process,
+so 42 GB of 96 GB, and the memmapped embeddings above that are page cache, which Linux
+evicts cleanly under pressure.
+
+**This restart is also the measurement.** Compare per-cell wall clock at 3-way against the
+serial timing you already have. If it is within ~50% of the serial per-cell time, the
+split is working and you can leave it. If it inflates more than that, you are thrashing —
+drop to two instances.
+
+Older framing, kept because the RAM arithmetic is still what limits you:
 
 | concurrency | grid wall clock | process RAM | + ~24 GB embeddings | fits in 96 GB? |
 |---|---|---|---|---|
@@ -239,3 +270,40 @@ of them decisions to take before burning the time, not after.
 **Note:** if you pulled before 2026-08-07 evening, that step wrote to `/dev/null` and the
 log will not exist. `git pull` to get the version that keeps it, or just time a full cell
 end to end and divide by 8 to get per-shard.
+
+## Restarting safely — what you keep and what you lose
+
+**Stop the run BEFORE `git pull`.** Bash reads a script incrementally as it executes, so
+rewriting the file underneath a running instance can make it resume at a stale byte offset
+and execute garbage. This is not theoretical and it is silent when it happens.
+
+```bash
+pkill -f RUN_INTERPLM_STRESS.sh          # then confirm nothing is left:
+pgrep -fl "RUN_INTERPLM_STRESS|compare_activations|train_ctrl_sae|embed_ctrl"
+git pull
+```
+
+**What survives a restart** — both guards were added 2026-08-07, so you need the pull for
+them to exist at all:
+
+| artefact | guard | kept? |
+|---|---|---|
+| SAEs already trained | `models/grid/<tag>/ae.pt` exists | **yes** |
+| cells already scored | `results/grid/<tag>_<split>/concept_f1_scores.csv` non-empty | **yes** |
+| `sae_quality.txt`, `concept_f1.txt` | append-only | **yes** |
+
+**What you lose** — about an hour, and it is worth being exact rather than reassuring:
+
+- **The cell in flight.** `compare_activations` writes `shard_N_counts.npz` per shard but
+  never checks whether one already exists (`compare_activations.py:442` — a plain
+  `for shard in shards_to_eval` with no skip). So a partly-scored split restarts from
+  shard 0. Worst case ~4 shards x 2 splits.
+- **Embeddings for the model/layer in flight.** The `.done` sentinel that guards these was
+  never actually written before today — `embed_ctrl_interplm.py` referenced two undefined
+  variables on that exact line and died with `NameError` after doing all the work. So on
+  the version you are running, that guard has never fired once. Re-embedding is GPU work
+  and is the fast part.
+
+Everything already finished is kept. Set against 67 h serial versus ~22 h split three
+ways, a ~1 h restart is worth it — but if you are already most of the way through, say so
+and we will just let it finish rather than churn.
