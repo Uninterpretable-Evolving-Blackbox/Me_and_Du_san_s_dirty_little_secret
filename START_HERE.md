@@ -2,15 +2,18 @@
 
 Ignore the other RUN_*.md files. They are older and some of them contradict this one.
 
-**Two exceptions, both new (2026-08-07) and not superseded by anything here:**
+**Three exceptions, all new (2026-08-07) and not superseded by anything here. Run them in
+this order — the first two are cheap, the third is 4–8 days of GPU:**
 
 - **`RUN_INTERPLM_ATTACK.md`** — runs InterPLM's *own published* metric on our models:
   their code, our backbone. Builds its own venv, does not touch `RUN_MUSTRUNS.sh`.
 - **`RUN_NOMODEL_BASELINE.md`** — builds one layer dir whose features contain no model,
   which any metric taking `--layer-dir` can then be pointed at. Cheap, and it attacks
   every metric here at once rather than one at a time.
+- **`RUN_500TPP_SEEDS.md`** — takes your 500 tok/param budget table off n=1. Expensive,
+  and it has a ranked fallback if the full version is too much box time.
 
-Read both after the four commands below.
+Read all three after the four commands below.
 
 ```
 git pull
