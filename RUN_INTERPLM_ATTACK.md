@@ -1,0 +1,102 @@
+# InterPLM's own published metric, run on our models
+
+```bash
+git pull
+cd interplm_attack
+export CKPT_ROOT=$HOME/own_sae_data/uniref50_pilot
+export CKPT_ROOT_SHUF=<the shuffled-corpus checkpoint tree>   # SEPARATE from CKPT_ROOT
+./RUN_INTERPLM_STRESS.sh setup     # ~2-3 h, once
+./RUN_INTERPLM_STRESS.sh smoke     # 2 min — please don't skip
+./RUN_INTERPLM_STRESS.sh grid      # 9 models x 3 layers x 3 SAE seeds
+```
+
+Send back: `$BASE/results/` (default `$BASE=$HOME/interplm_stress`).
+`SAE_SRC` defaults to this repo root, where `model_ctrl_esmc.py` already lives.
+
+**This is new and unrelated to the Aug 6/7 batch.** It does not use `RUN_MUSTRUNS.sh`
+and does not touch anything in it — it builds its own venv with InterPLM installed,
+because the whole point is to run *their* code rather than ours.
+
+---
+
+## What it is
+
+Every metric module here is InterPLM's own (Simon & Zou, *Nature Methods* 2025),
+invoked unmodified as `python -m interplm.analysis.concepts.*`. The only substitution
+is the backbone: their metric, our models. `embed_ctrl_interplm.py` is the single piece
+of our code in the path, and it exists only to write our activations in the format
+their `embed_annotations.py` produces.
+
+## Why it is worth your GPU
+
+Every published pLM SAE paper — InterPLM, Adams et al., the Matryoshka ESM2-3B work,
+Villegas Garcia & Ansuini, Nainani et al. — evaluates on **ESM-2**. Not one uses a
+causal pLM. The field therefore carries an untested assumption: that these metrics
+behave the same regardless of training objective. We have the only objective-isolated
+pair, a shuffled-corpus arm and three seeds, so this is the only place it can be tested.
+
+**Your Aug 6/7 result is what makes it sharp.** You showed the validity failure is
+regime-bounded: invalid for causal at any budget and *worsening* with training
+(26× → 75× at L11), invalid for masked only when undertrained, roughly valid for
+well-trained masked (0.90× at 500 tok/param, shuffled below real). And ESM-2's own
+features are fold detectors — 2.3% amino-acid-pure against our 42M masked arm's 63–85%.
+
+The obvious next question is whether **InterPLM's published metric shows that same
+regime structure on the same models**. If it does, the finding generalises beyond our
+statistic. If it doesn't, we learn the failure is specific to `L_struct` — which is
+equally worth knowing and considerably narrows the paper.
+
+## Four things that will bite
+
+1. **`CKPT_ROOT_SHUF` must be a different tree from `CKPT_ROOT`.** If the shuffled arms
+   resolve to the real checkpoints, the control compares the real models against
+   themselves and reports "shuffled == real" — which reads as the metric *passing* its
+   validity check. A sha256 preflight now refuses to start if any two arms hash the
+   same, so it catches copies and symlinks, not just equal paths. You should see
+   `preflight OK: 8 checkpoints, all distinct`.
+
+2. **`extract_annotations` will eat the box if you let it.** It defaults to
+   `ProcessPoolExecutor(os.cpu_count())`, each worker holding a fully exploded
+   per-residue DataFrame at 15–30 GB. It took a 128 GB laptop down twice. `setup` pins
+   `--max_workers 1 --n_shards 16`; both are their own CLI flags, so their code stays
+   unmodified. Don't parallelise that step.
+
+3. **Three environment pins or their code will not run at all:** `pandas<3`
+   (`np.array_split` on a DataFrame changed behaviour), `nnsight==0.5.15` (their
+   fidelity call is rejected by every version 0.4.11–0.7.0), and `SSL_CERT_FILE`.
+   `setup` applies all three.
+
+4. **Read `sae_quality.txt` before `concept_f1.txt`.** It is written for every
+   dictionary *before* any concept number exists for that cell, deliberately — a
+   configuration must never be selected on the metric being reported. On our 33.2M pair
+   the masked arm had **502 live features of 1,920** against causal's **1,551**, and the
+   concept-F1 gap **flipped sign** with the L1 setting. If your 42M runs show comparable
+   live-feature counts, the objective contrast is interpretable. If they don't, the
+   non-comparability is itself the finding and we report that instead.
+
+## Expected oddities
+
+- **`compare_activations` is single-threaded** and will use one core for a long time.
+  That is their code, not a misconfiguration. Cells are independent so `xargs -P N` over
+  them is safe — but size N against RAM, not cores: each peaks at 12–15 GB, and 6-way on
+  a 128 GB machine turned a 5-minute job into 187 minutes with nothing written. N = 3–4.
+- **Zero concepts above F1 0.5 is possible** and does not mean a broken run. Our small
+  local SAEs scored 0.067–0.137 with none identified, against 0.209 / 9 concepts for
+  their own ESM-2 walkthrough. It means the regime has no discriminative power, which is
+  itself reportable — but check `sae_quality.txt` before concluding anything.
+
+## Two things I owe you
+
+- **The `PY` quoting bug is ours and you were right.** `PY="${PY:-$PY_BIN -u}"` makes a
+  single string, so quoted call sites try to exec a file literally named `python -u`.
+  Fix is `PY=("$PY_BIN" -u)` with `"${PY[@]}"` at call sites, or drop `-u` and export
+  `PYTHONUNBUFFERED=1`. Your environment override was the right call, and this new
+  runner doesn't repeat the pattern.
+- **`--arch esmc` is smoke-tested, not grid-tested.** It ran against a 42M-architecture
+  checkpoint with `esm==3.2.3` and passed (`SMOKE OK: (173, 320) rows, 8 proteins,
+  sum(len)=173`), and `hiddens` was confirmed from esm's source to have exactly
+  `n_layers` entries, so `hid[layer]` matches `eval_ctrl_plm.py` with no off-by-one.
+  `smoke` on your own checkpoint is the two-minute check before committing the grid.
+
+`interplm_attack/README.md` has the full detail, including the four checks to eyeball
+and the six comparisons this feeds.
