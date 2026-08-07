@@ -47,6 +47,18 @@ check_env () {
     [ "$free" -ge 80 ] && ok "free disk ${free} GB (need >=60 for the attack)" \
                        || bad "free disk ${free} GB — the attack needs >=60 GB and will die mid-grid"
   else skip "could not read free disk"; fi
+  # Undefined names. embed_ctrl_interplm.py shipped with `fastas` and
+  # `shard_files` never assigned, both on the .done sentinel line -- so every
+  # embedding call did its full work and then died with NameError, the sentinel
+  # was never written, and the resume guard could never fire. A crash at the END
+  # of a long job is the expensive kind. This catches the whole class.
+  if "$PY" -m pyflakes --version >/dev/null 2>&1; then
+    lint=$("$PY" -m pyflakes experiment_extra_metrics.py make_synthetic_layer.py \
+             interplm_attack/*.py 2>&1 | grep "undefined name")
+    [ -z "$lint" ] && ok "no undefined names in the run-path scripts" \
+                   || { bad "undefined name(s) — these crash at runtime, not import:"; echo "$lint" | sed 's/^/        /'; }
+  else skip "pyflakes not installed ('$PY -m pip install pyflakes' to enable the undefined-name check)"; fi
+
   # the PY quoting regression that killed all 13 stage-11 cells last time
   if grep -q 'PY="${PY:-$PY_BIN -u}"' RUN_MUSTRUNS.sh 2>/dev/null; then
     bad "RUN_MUSTRUNS.sh still has the PY='...python -u' quoting bug (line ~79). Override with PY=<interpreter> or the stages exec a file named 'python -u'"

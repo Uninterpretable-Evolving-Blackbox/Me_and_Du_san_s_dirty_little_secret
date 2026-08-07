@@ -188,7 +188,11 @@ def main():
     out = Path(args.out); out.mkdir(parents=True, exist_ok=True)
 
     if args.fasta_dir:
-        for ff in sorted(Path(args.fasta_dir).glob("shard_*.fasta")):
+        fastas = sorted(Path(args.fasta_dir).glob("shard_*.fasta"))
+        if not fastas:
+            raise SystemExit(f"  no shard_*.fasta under {args.fasta_dir} — "
+                             f"refusing to write a .done sentinel for zero work")
+        for ff in fastas:
             seqs, cur = [], []
             for line in open(ff):
                 if line.startswith(">"):
@@ -214,7 +218,11 @@ def main():
         (out / ".done").write_text(str(len(fastas)))   # B6 sentinel
         return
 
-    for sf in sorted(Path(args.shards_dir).glob("shard_*/protein_data.tsv")):
+    shard_files = sorted(Path(args.shards_dir).glob("shard_*/protein_data.tsv"))
+    if not shard_files:
+        raise SystemExit(f"  no shard_*/protein_data.tsv under {args.shards_dir} — "
+                         f"refusing to write a .done sentinel for zero work")
+    for sf in shard_files:
         df = pd.read_csv(sf, sep="\t")
         col = next(c for c in df.columns if c.lower() == "sequence")
         expected = sp.load_npz(sf.parent / "aa_concepts.npz").shape[0]
