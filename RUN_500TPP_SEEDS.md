@@ -1,7 +1,17 @@
 # The 500 tok/param comparison is n=1, and it is now a headline
 
-**Ronnie — this is the one expensive ask. Read the priority note at the bottom before
-starting it; the InterPLM attack is cheaper and should go first.**
+> ## ON HOLD — do not start this yet
+>
+> Finish jobs 1–3 in `START_HERE.md`, send the results, and wait for a reply. This file is
+> here so you can read the plan and cost it, not so you can run it.
+>
+> Two of the three reasons are in `START_HERE.md`. The one that matters most: the **scope**
+> of this job is undecided. The ranked fallback below is ~50 GPU-h against ~200 for the
+> full version, and which slice is right depends on whether InterPLM's own metric turns
+> out to be arm-dependent the way ours is — which is exactly what job 3 answers.
+>
+> If you have finished 1–3 and had no reply, ask before starting. Don't default to the
+> full version.
 
 ## Why
 

@@ -38,12 +38,41 @@ this order — cheapest first, so a red one never blocks a cheap one:**
 | 1 | **`RUN_NOMODEL_BASELINE.md`** — builds one layer dir whose features contain no model, which any metric taking `--layer-dir` can be pointed at. Attacks every metric here at once rather than one at a time. | minutes, CPU |
 | 2 | **`RUN_EXTRA_METRICS.md`** — three further published metrics (Adams, Li, SAEBench) on the same inputs, so the failure can be shown not to be specific to ours. | ~1 h CPU |
 | 3 | **`RUN_INTERPLM_ATTACK.md`** — InterPLM's *own published* metric on our models: their code, our backbone. Builds its own venv, does not touch `RUN_MUSTRUNS.sh`. | ~2–3 h setup + ~1–2 days grid |
-| 4 | **`RUN_500TPP_SEEDS.md`** — takes the 500 tok/param budget table off n=1. Has a ranked fallback if the full version is too much box time. | 100–200 GPU-h |
+| 4 | **`RUN_500TPP_SEEDS.md`** — takes the 500 tok/param budget table off n=1. | **ON HOLD — do not start. See below.** |
+
+### Run 1–3, then STOP and report
+
+**Do not start job 4.** Finish 1–3, send the results, and wait for a reply before touching
+anything in `RUN_500TPP_SEEDS.md`. That brief is deliberately still in the repo so you can
+read the plan, but it is not authorised to run yet.
+
+This is not about the cost alone. Three reasons, so you can tell if the situation has
+changed enough to ask again:
+
+1. **1–3 create new results; 4 tightens an error bar on a result we already have.** There
+   is a preprint on the critical path, so new evidence is worth more right now than a
+   better bound on old evidence. The n=1 caveat on the budget table can be stated honestly
+   in the meantime.
+2. **4 monopolises the GPU for 4–8 days.** Jobs 1 and 2 are CPU-only and job 3 is 54 GPU
+   embedding passes followed by ~13 h of single-threaded CPU — so 1–3 barely touch the
+   GPU, while 4 owns it completely and nothing else moves.
+3. **What job 4 *should be* depends on what job 3 says.** `RUN_500TPP_SEEDS.md` has a
+   ranked fallback — shuffled-pair-only or masked-arm-only, ~50 GPU-h instead of ~200.
+   Which cut is right depends on whether InterPLM's own metric turns out to be
+   arm-dependent the way ours is. Deciding before job 3 lands risks spending 8 days on the
+   wrong slice.
+
+The likely instruction afterwards is the cheapest slice — **shuffled pair, seed 43 only,
+~50 GPU-h** — rather than the full version. Don't pre-empt it; the point of stopping is
+that the answer might be the masked arm instead.
+
+Deadline for context: ICLR 2027 main track, **2026-09-24**. Jobs 1–3 are about two days,
+so there is roughly a month of slack. Nothing here needs to be rushed.
 
 1 and 2 both need `Z.npy` present in the layer dirs. If it was pruned,
 `STAGE=1 bash RUN_MUSTRUNS.sh` rebuilds it (~2 h) and is the only expensive part of either.
 
-Read all four after the four commands below.
+Read 1–3 after the four commands below.
 
 ```
 git pull
