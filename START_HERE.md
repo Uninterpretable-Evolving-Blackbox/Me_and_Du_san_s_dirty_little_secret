@@ -2,10 +2,15 @@
 
 Ignore the other RUN_*.md files. They are older and some of them contradict this one.
 
-**One exception: `RUN_INTERPLM_ATTACK.md` is new (2026-08-07) and is not superseded
-by anything here.** It is a separate pipeline that runs InterPLM's *own published*
-metric on our models — their code, our backbone. It builds its own venv and does not
-touch `RUN_MUSTRUNS.sh`. Read it after the four commands below.
+**Two exceptions, both new (2026-08-07) and not superseded by anything here:**
+
+- **`RUN_INTERPLM_ATTACK.md`** — runs InterPLM's *own published* metric on our models:
+  their code, our backbone. Builds its own venv, does not touch `RUN_MUSTRUNS.sh`.
+- **`RUN_NOMODEL_BASELINE.md`** — builds one layer dir whose features contain no model,
+  which any metric taking `--layer-dir` can then be pointed at. Cheap, and it attacks
+  every metric here at once rather than one at a time.
+
+Read both after the four commands below.
 
 ```
 git pull
