@@ -46,9 +46,37 @@ The cost is linear in **features x shards**, so at `CTRL_EXP=4` (1,280 features)
 1,280 x 0.293 s = ~6.2 min/shard  ->  ~50 min/cell (8 shards)  ->  ~68 h for 81 cells
 ```
 
-So the grid is **~3 days serial on hardware like ours**, not 1-2. It is single-threaded,
-so `xargs -P 3` over cells brings that to roughly a day — but size N against RAM, not
-cores (each peaks at 12-15 GB; 6-way turned a 5-minute job into 187 minutes).
+So the grid is **~3 days serial** — but do not run it serially.
+
+### Parallelise it. This is the biggest lever by far.
+
+`compare_activations` is **one process on one core**, verified while running it: 99% CPU
+on an 18-core box, 13.5 GB resident, and no `OMP_NUM_THREADS`/`OPENBLAS_NUM_THREADS` in
+play. It is not a misconfiguration — their hot loop is a plain Python `for` over feature
+chunks (`compare_activations.py:287`) and `is_sparse=True` is the default, so it takes the
+scipy sparse path. **The CUDA branch at `:184` is only reached by the dense/neuron path, so
+your GPU does nothing for this step.** Same bottleneck on both our boxes.
+
+The chunks are independent, but parallelising inside their loop would mean editing their
+code, which the one rule forbids. Cells are independent too, and running several *processes*
+does not touch their code at all:
+
+| concurrency | grid wall clock | process RAM |
+|---|---|---|
+| serial | 67 h | 14 GB |
+| `-P 4` | **17 h** | 56 GB |
+| `-P 6` | 11 h | 84 GB |
+| `-P 8` | 8 h | 112 GB |
+
+**Use `-P 4` unless you have watched it.** Two reasons to be conservative rather than
+greedy: each process is 12–15 GB, *and* the memmapped embeddings (~24 GB per model) sit in
+page cache competing for the same RAM. That combination is almost certainly what turned a
+5-minute job into 187 minutes at 6-way before — 6x14 GB plus a 24 GB working set on a
+128 GB machine leaves nothing, and the box starts compressing rather than computing.
+
+**Judge it by output, not by memory pressure**: if `results/grid/<tag>_<split>/` has not
+gained files within ~15 minutes of a cell starting, you are thrashing — drop N and restart.
+That check is what would have caught the 187-minute run in minute 15 instead of hour 3.
 
 That 0.293 s/feature/shard was measured on an Apple M-series CPU. Rescale it on your own
 box from the first cell rather than trusting it: watch the `n/50` chunk pacing in the
