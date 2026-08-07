@@ -43,6 +43,18 @@ DEV=${DEV:-cuda}
 LAYERS=${LAYERS:-"11 14 18"}
 SEEDS=${SEEDS:-"0 1 2"}
 L1=${L1:-0.06}
+# Expansion 4, set explicitly rather than left to the sed default. Two reasons,
+# both checkable: (a) it is InterPLM's own walkthrough recipe for a 320-dim model
+# (examples/train_basic_sae.py: 320 -> 1280); (b) results_rigor/
+# capacity_vs_lstruct_extended.csv shows it is where the two arms' dictionaries
+# are MOST comparable -- val_EV masked 0.976 / causal 0.837 (gap 0.139) at exp 4,
+# against 0.960 / 0.715 (gap 0.245) at exp 8, degrading to 0.904 / 0.261 at 32.
+# Arm comparability is the axis the whole reconstruction-attribution argument
+# turns on, so the narrowest gap is the right default here.
+# NOTE this differs from the expansion 8 used by every OTHER result in this
+# project (sae_hidden_dim 2560 = 320 x 8). Deliberate: this run is "their recipe,
+# our backbone", so it follows theirs. Override with CTRL_EXP=8 to cross-check.
+CTRL_EXP=${CTRL_EXP:-4}
 MAXLEN=${MAXLEN:-510}          # <= max_seq-2 of the models being embedded
 
 # Which checkpoints to run.  name:ABSOLUTE_CKPT_PATH:extra-flags
@@ -215,14 +227,26 @@ grid () {
 
       for S in $SEEDS; do
         TAG=${NAME}_L${LAYER}_s${S}; SAVE=models/grid/$TAG
-        CTRL_DIM=$DIM CTRL_L1=$L1 CTRL_SEED=$S CTRL_EMBD_DIR=$T \
+        # RESUME GUARD. This grid is ~1-2 days and the embeddings are deleted per
+        # layer below, which also removes their .done sentinels -- so without a
+        # guard here an interrupted run re-trains every SAE it had already fitted.
+        # ae.pt is written last by their trainer, so its presence means finished.
+        if [ -f "$REPO/$SAVE/ae.pt" ]; then
+          echo "  skip (SAE exists) $TAG"
+        else
+        CTRL_DIM=$DIM CTRL_L1=$L1 CTRL_SEED=$S CTRL_EMBD_DIR=$T CTRL_EXP=$CTRL_EXP \
         CTRL_SAVE_DIR=$SAVE LAYER=$LAYER $PY examples/train_ctrl_sae.py \
             > "$BASE/results/train_$TAG.log" 2>&1
         # outcome-blind quality FIRST, always, before any concept number exists
         $PY "$HERE/sae_quality.py" --sae "$SAVE/ae.pt" --embd "$A" --repo "$REPO" \
             --tag "$TAG" >> "$BASE/results/sae_quality.txt" 2>&1
+        fi
         $PY -m interplm.sae.normalize --sae_dir "$SAVE" --aa_embds_dir "$A" >/dev/null 2>&1
         for SP in valid test; do
+          # ~5 min each, 162 of them -- the single largest block of wall clock.
+          if [ -s "$REPO/results/grid/${TAG}_${SP}/concept_f1_scores.csv" ]; then
+            echo "  skip (scored) ${TAG}_${SP}"; continue
+          fi
           $PY -m interplm.analysis.concepts.compare_activations --sae_dir "$SAVE" \
               --aa_embds_dir "$A" --eval_set_dir "$BASE/ann/processed/$SP/" \
               --output_dir "results/grid/${TAG}_${SP}" >/dev/null 2>&1

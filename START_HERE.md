@@ -2,18 +2,20 @@
 
 Ignore the other RUN_*.md files. They are older and some of them contradict this one.
 
-**Three exceptions, all new (2026-08-07) and not superseded by anything here. Run them in
-this order — the first two are cheap, the third is 4–8 days of GPU:**
+**Four exceptions, all new (2026-08-07) and not superseded by anything here. Run them in
+this order — cheapest first, so a red one never blocks a cheap one:**
 
-- **`RUN_INTERPLM_ATTACK.md`** — runs InterPLM's *own published* metric on our models:
-  their code, our backbone. Builds its own venv, does not touch `RUN_MUSTRUNS.sh`.
-- **`RUN_NOMODEL_BASELINE.md`** — builds one layer dir whose features contain no model,
-  which any metric taking `--layer-dir` can then be pointed at. Cheap, and it attacks
-  every metric here at once rather than one at a time.
-- **`RUN_500TPP_SEEDS.md`** — takes your 500 tok/param budget table off n=1. Expensive,
-  and it has a ranked fallback if the full version is too much box time.
+| | brief | cost |
+|---|---|---|
+| 1 | **`RUN_NOMODEL_BASELINE.md`** — builds one layer dir whose features contain no model, which any metric taking `--layer-dir` can be pointed at. Attacks every metric here at once rather than one at a time. | minutes, CPU |
+| 2 | **`RUN_EXTRA_METRICS.md`** — three further published metrics (Adams, Li, SAEBench) on the same inputs, so the failure can be shown not to be specific to ours. | ~1 h CPU |
+| 3 | **`RUN_INTERPLM_ATTACK.md`** — InterPLM's *own published* metric on our models: their code, our backbone. Builds its own venv, does not touch `RUN_MUSTRUNS.sh`. | ~2–3 h setup + ~1–2 days grid |
+| 4 | **`RUN_500TPP_SEEDS.md`** — takes the 500 tok/param budget table off n=1. Has a ranked fallback if the full version is too much box time. | 100–200 GPU-h |
 
-Read all three after the four commands below.
+1 and 2 both need `Z.npy` present in the layer dirs. If it was pruned,
+`STAGE=1 bash RUN_MUSTRUNS.sh` rebuilds it (~2 h) and is the only expensive part of either.
+
+Read all four after the four commands below.
 
 ```
 git pull

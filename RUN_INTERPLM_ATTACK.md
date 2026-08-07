@@ -4,7 +4,7 @@
 git pull
 cd interplm_attack
 export CKPT_ROOT=$HOME/own_sae_data/uniref50_pilot
-export CKPT_ROOT_SHUF=<the shuffled-corpus checkpoint tree>   # SEPARATE from CKPT_ROOT
+export CKPT_ROOT_SHUF=$HOME/own_sae_data/uniref50_pilot_shuf   # SEPARATE tree; read from your METAs
 ./RUN_INTERPLM_STRESS.sh setup     # ~2-3 h, once
 ./RUN_INTERPLM_STRESS.sh smoke     # 2 min — please don't skip
 ./RUN_INTERPLM_STRESS.sh grid      # 9 models x 3 layers x 3 SAE seeds
@@ -12,6 +12,39 @@ export CKPT_ROOT_SHUF=<the shuffled-corpus checkpoint tree>   # SEPARATE from CK
 
 Send back: `$BASE/results/` (default `$BASE=$HOME/interplm_stress`).
 `SAE_SRC` defaults to this repo root, where `model_ctrl_esmc.py` already lives.
+
+## How long
+
+**Estimate, ~1–2 days serial. Only one component of it is measured**, so treat it as a
+planning figure and not a promise:
+
+| stage | count | each | basis |
+|---|---|---|---|
+| `setup` | once | 2–3 h | measured |
+| embedding | 54 passes (9 models × 3 layers × {analysis, train}) | minutes | GPU, forward only |
+| SAE training | 81 | ~10–20 min | **estimated** |
+| `compare_activations` | 162 (81 cells × valid/test) | **~5 min** | measured, running alone |
+| `calculate_f1`, `report_metrics`, `aa_floor` | 81 each | seconds | — |
+
+`compare_activations` alone is ~13 h and is the floor. It is single-threaded, so
+`xargs -P 3` over cells cuts the wall clock roughly threefold — but size N against RAM,
+not cores (each peaks at 12–15 GB; 6-way turned a 5-minute job into 187 minutes).
+
+**It resumes, but only because guards were added on 2026-08-07 — an earlier version of
+this file claimed resumability it did not have.** The `.done` sentinels cover the
+embeddings only, and those get deleted per layer, sentinel included. SAE training and
+scoring now have their own guards: a cell is skipped if `models/grid/<tag>/ae.pt` exists
+(their trainer writes it last, so its presence means finished) or if
+`results/grid/<tag>_<split>/concept_f1_scores.csv` is non-empty. You will see
+`skip (SAE exists)` / `skip (scored)` lines on a restart. **This resume path has not been
+exercised** — if you do restart, eyeball that the skip counts look right before letting it
+run on.
+
+Stopping early is fine. Partial cells are usable; send what exists.
+
+**What persists:** the SAEs, under `models/grid/<tag>`. Only the embeddings are deleted
+per model (`rm -rf` at the end of each layer), which caps disk at ~60 GB instead of
+~210 GB. So adding another metric later costs a re-embed, not a re-train — the cheap half.
 
 **This is new and unrelated to the Aug 6/7 batch.** It does not use `RUN_MUSTRUNS.sh`
 and does not touch anything in it — it builds its own venv with InterPLM installed,
