@@ -247,12 +247,19 @@ grid () {
           if [ -s "$REPO/results/grid/${TAG}_${SP}/concept_f1_scores.csv" ]; then
             echo "  skip (scored) ${TAG}_${SP}"; continue
           fi
+          # Keep the output. This step dominates the run (~6 min/shard at 1,280
+          # features, 8 shards/cell, 81 cells) and it used to go to /dev/null --
+          # so a multi-day job had no progress signal AND no error text if it
+          # died. Its tqdm line ("n/50 [elapsed<remaining, X s/it]") is the only
+          # way to rescale the runtime estimate onto this box.
           $PY -m interplm.analysis.concepts.compare_activations --sae_dir "$SAVE" \
               --aa_embds_dir "$A" --eval_set_dir "$BASE/ann/processed/$SP/" \
-              --output_dir "results/grid/${TAG}_${SP}" >/dev/null 2>&1
+              --output_dir "results/grid/${TAG}_${SP}" \
+              > "$BASE/results/score_${TAG}_${SP}.log" 2>&1
           $PY -m interplm.analysis.concepts.calculate_f1 \
               --eval_res_dir "results/grid/${TAG}_${SP}" \
-              --eval_set_dir "$BASE/ann/processed/$SP/" >/dev/null 2>&1
+              --eval_set_dir "$BASE/ann/processed/$SP/" \
+              >> "$BASE/results/score_${TAG}_${SP}.log" 2>&1
         done
         { echo "----- $TAG -----"
           $PY -m interplm.analysis.concepts.report_metrics \

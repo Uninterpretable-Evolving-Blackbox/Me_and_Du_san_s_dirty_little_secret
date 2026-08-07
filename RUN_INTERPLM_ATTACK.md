@@ -162,3 +162,34 @@ equally worth knowing and considerably narrows the paper.
 
 `interplm_attack/README.md` has the full detail, including the four checks to eyeball
 and the six comparisons this feeds.
+
+## If you have already started — one number I need
+
+My ~68 h figure was measured on an **Apple M-series laptop**. `compare_activations` is
+single-threaded CPU, so your RTX PRO 6000 does nothing for it and the only thing that
+matters is single-core CPU speed. Server CPUs and Apple silicon differ enough on this kind
+of work that the true figure on your box could plausibly be anywhere from half to double
+mine. I have no honest way to predict it from here.
+
+You can settle it in about a minute, and it is worth doing at hour 1 rather than hour 60:
+
+```bash
+# after the first compare_activations has been going a few minutes
+grep -aoE "[0-9]+/[0-9]+ \[[0-9:]+<[0-9:]+" $BASE/results/score_*.log | tail -3
+```
+
+That prints the tqdm pacing, e.g. `12/50 [14:06<44:38`. Then:
+
+```
+seconds_per_chunk x n_chunks x 8 shards x 81 cells / 3600 = hours
+```
+
+On mine: 72 s/chunk x 50 chunks x 8 x 81 / 3600 = 65 h.
+
+**If yours comes out above ~4 days, stop and tell me before continuing.** The honest levers
+are then SAE seeds 3 -> 1 (threefold), layers 3 -> 2, or dropping the untrained arm — all
+of them decisions to take before burning the time, not after.
+
+**Note:** if you pulled before 2026-08-07 evening, that step wrote to `/dev/null` and the
+log will not exist. `git pull` to get the version that keeps it, or just time a full cell
+end to end and divide by 8 to get per-shard.
