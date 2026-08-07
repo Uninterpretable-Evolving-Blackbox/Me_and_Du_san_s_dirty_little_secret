@@ -2,12 +2,16 @@
 
 ```bash
 git pull
+./preflight.sh env && ./preflight.sh ckpt   # STOP on any FAIL
 cd interplm_attack
 export CKPT_ROOT=$HOME/own_sae_data/uniref50_pilot
 export CKPT_ROOT_SHUF=$HOME/own_sae_data/uniref50_pilot_shuf   # SEPARATE tree; read from your METAs
 ./RUN_INTERPLM_STRESS.sh setup     # ~2-3 h, once
+cd .. && ./preflight.sh post-setup && cd interplm_attack   # verifies the generated trainer
 ./RUN_INTERPLM_STRESS.sh smoke     # 2 min — please don't skip
 ./RUN_INTERPLM_STRESS.sh grid      # 9 models x 3 layers x 3 SAE seeds
+# ...then, once the first cell finishes and BEFORE leaving it running:
+cd .. && ./preflight.sh first-cell
 ```
 
 Send back: `$BASE/results/` (default `$BASE=$HOME/interplm_stress`).
@@ -120,11 +124,13 @@ equally worth knowing and considerably narrows the paper.
 
 ## Two things I owe you
 
-- **The `PY` quoting bug is ours and you were right.** `PY="${PY:-$PY_BIN -u}"` makes a
-  single string, so quoted call sites try to exec a file literally named `python -u`.
-  Fix is `PY=("$PY_BIN" -u)` with `"${PY[@]}"` at call sites, or drop `-u` and export
-  `PYTHONUNBUFFERED=1`. Your environment override was the right call, and this new
-  runner doesn't repeat the pattern.
+- **The `PY` quoting bug is ours, you were right, and it is now actually fixed** — we had
+  left it in and relied on your environment override. `PY="${PY:-$PY_BIN -u}"` makes a
+  single two-word string, so the 20 correctly-quoted call sites try to exec a file
+  literally named `python -u`; the 4 unquoted ones word-split by luck, which is why it hid
+  in some stages and not others. `RUN_MUSTRUNS.sh` now keeps `PY` a single word and gets
+  unbuffering from `PYTHONUNBUFFERED=1`. You no longer need the override, and
+  `./preflight.sh env` fails if the pattern ever comes back. This new runner never had it.
 - **`--arch esmc` is smoke-tested, not grid-tested.** It ran against a 42M-architecture
   checkpoint with `esm==3.2.3` and passed (`SMOKE OK: (173, 320) rows, 8 proteins,
   sum(len)=173`), and `hiddens` was confirmed from esm's source to have exactly

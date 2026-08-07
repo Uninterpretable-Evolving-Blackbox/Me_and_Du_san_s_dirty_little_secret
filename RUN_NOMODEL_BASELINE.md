@@ -2,6 +2,7 @@
 
 ```bash
 git pull
+./preflight.sh env && ./preflight.sh data    # STOP on any FAIL
 
 # build a layer dir whose "features" contain no model at all
 python make_synthetic_layer.py --src outputs_ctrl/ckpt_mlm_s42_token/layer_14 \

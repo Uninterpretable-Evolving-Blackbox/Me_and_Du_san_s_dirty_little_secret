@@ -1,5 +1,33 @@
 # Start here
 
+## Run the preflight first
+
+```bash
+git pull
+./preflight.sh all
+```
+
+Every check prints `PASS` / `FAIL` / `SKIP` with the expected value stated, and the script
+exits non-zero if anything failed. It takes a couple of minutes and needs no GPU.
+
+**On any `FAIL`: stop and report it. Do not repair and continue.** Every check exists
+because the thing it guards has already failed silently at least once here, and the
+failure mode in this project is *plausible numbers, not crashes* — which is far more
+expensive to catch later than to catch now.
+
+Two more checkpoints during the InterPLM attack, both cheap:
+
+```bash
+./preflight.sh post-setup    # after `RUN_INTERPLM_STRESS.sh setup`, before `grid`
+./preflight.sh first-cell    # after the first grid cell, before leaving it running
+```
+
+`first-cell` is the important one. It verifies that the three SAE seeds produce **distinct
+dictionaries** — that exact bug already produced three bit-identical "seeds" in this
+project's own results, which would silently make every three-seed number an n=1 number.
+
+---
+
 Ignore the other RUN_*.md files. They are older and some of them contradict this one.
 
 **Four exceptions, all new (2026-08-07) and not superseded by anything here. Run them in

@@ -2,6 +2,7 @@
 
 ```bash
 git pull
+./preflight.sh env && ./preflight.sh data    # STOP on any FAIL
 
 # one cell, to check it runs on your layout (30-60 s)
 python experiment_extra_metrics.py \

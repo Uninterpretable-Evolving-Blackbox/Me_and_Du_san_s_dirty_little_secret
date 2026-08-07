@@ -76,8 +76,16 @@ LAYERS="${LAYERS:-11,14,18}"
 PY_BIN="${PY_BIN:-$PWD/.venv/bin/python}"
 [ -x "$PY_BIN" ] || PY_BIN="$(command -v python3 || command -v python)"
 [ -n "$PY_BIN" ] || { echo "!! no python interpreter found; set PY_BIN=/path/to/python"; exit 2; }
-PY="${PY:-$PY_BIN -u}"
-echo "   interpreter: $PY"
+# FIX 2026-08-07 (Ronnie, README_20260807 section 5a). Baking "-u" into PY makes
+# it a two-word STRING, so the 20 call sites that correctly quote "$PY" try to
+# exec a file literally named "python -u":
+#   RUN_MUSTRUNS.sh: line 56: /home/.../.venv/bin/python -u: No such file or directory
+# All 13 stage-11 cells died this way. The 4 unquoted call sites happened to
+# word-split correctly, which is why the bug hid in some stages and not others.
+# Keep PY a single valid word and get unbuffering from the environment instead.
+PY="${PY:-$PY_BIN}"
+export PYTHONUNBUFFERED=1
+echo "   interpreter: $PY  (PYTHONUNBUFFERED=1)"
 
 
 # ---------------------------------------------------------------------------
