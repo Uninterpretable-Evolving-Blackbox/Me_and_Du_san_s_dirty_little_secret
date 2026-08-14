@@ -45,6 +45,8 @@ DEPTHS_HEADLINE="${DEPTHS_HEADLINE:-11 14 18}"
 NSHUF_HI="${NSHUF_HI:-25}"          # the enlarged permutation null; the paper uses 5
 NSHUF_OUT="${NSHUF_OUT:-results_nshuffle_headline}"
 FOLDDISJ_APPLY="${FOLDDISJ_APPLY:-0}"
+RAW_ROOT="${RAW_ROOT:-outputs_raw_real}"          # STAGE=10 writes <arm>/layer_<L>/X.npy
+RANDOMINIT_ROOT="${RANDOMINIT_ROOT:-outputs_ctrl_randominit}"   # STAGE=15
 K_SPARSE="${K_SPARSE:-256}"
 EXPANSION="${EXPANSION:-8}"
 
@@ -212,14 +214,28 @@ stage_trivial () {
       done
     done
   done
-  # the untrained arm is the informative contrast: it should sit AT the floor
-  for L in $DEPTHS_HEADLINE; do
-    local LD="$OUT/ctrl_randominit/layer_$L"
-    [ -d "$LD" ] || continue
-    local DEST="results_trivial_baseline/randominit_L${L}"
-    [ -f "$DEST/trivial_baseline.csv" ] && continue
-    $PY -u experiment_trivial_baseline.py --layer-dir "$LD" --out "$DEST" || rc=1
+  # the untrained arm is the informative contrast: it should sit AT the floor.
+  # Random-init cells live under their own root, per arm (RUN_MUSTRUNS.sh:677).
+  local n_ri=0
+  for s in $SEEDS; do
+    for arm in "ckpt_mlm_s${s}_token" "ckpt_clm_s${s}"; do
+      for L in $DEPTHS_HEADLINE; do
+        local LD="$RANDOMINIT_ROOT/$arm/layer_$L"
+        [ -f "$LD/Z.npy" ] || continue
+        local DEST="results_trivial_baseline/randominit_${arm}_L${L}"
+        [ -f "$DEST/trivial_baseline.csv" ] && { n_ri=$((n_ri+1)); continue; }
+        echo "=== [trivial/random-init] $arm L$L $(date +%H:%M:%S) ==="
+        $PY -u experiment_trivial_baseline.py --layer-dir "$LD" --out "$DEST" || rc=1
+        n_ri=$((n_ri+1))
+      done
+    done
   done
+  if [ "$n_ri" -eq 0 ]; then
+    echo
+    echo "  NO random-init cells found under $RANDOMINIT_ROOT/ — run STAGE=15 bash RUN_MUSTRUNS.sh."
+    echo "  Without them the trained margins have nothing to be read against, which is the"
+    echo "  whole point of this stage. Not a silent skip: please say if they are gone."
+  fi
   return $rc
 }
 run 4 "trivial baseline — concept scores against their prevalence floor" stage_trivial
@@ -243,17 +259,21 @@ stage_global () {
         [ -f "$DEST/global_probe.csv" ] && { echo "  [done] $arm L$L"; continue; }
         echo "=== [global] $arm L$L $(date +%H:%M:%S) ==="
         $PY -u experiment_global_probe.py --layer-dir "$LD" --out "$DEST" || rc=1
-        # raw contrast, only where the raw activations were kept
-        if [ -n "${RAW_NPY_ROOT:-}" ] && [ -f "$RAW_NPY_ROOT/$arm/layer_$L/acts.npy" ]; then
-          $PY -u experiment_global_probe.py --layer-dir "$LD" --mode raw \
-              --raw-npy "$RAW_NPY_ROOT/$arm/layer_$L/acts.npy" \
-              --out "${DEST}_raw" || rc=1
+        # raw contrast. Same location the pairwise probe uses (RUN_MUSTRUNS.sh:510), so
+        # STAGE=10 having been run is the only precondition.
+        local RAW="$RAW_ROOT/$arm/layer_$L/X.npy"
+        if [ -f "$RAW" ]; then
+          [ -f "${DEST}_raw/global_probe.csv" ] || \
+            $PY -u experiment_global_probe.py --layer-dir "$LD" --mode raw \
+                --raw-npy "$RAW" --out "${DEST}_raw" || rc=1
+        else
+          echo "  [no raw] $RAW missing — run STAGE=10 bash RUN_MUSTRUNS.sh."
+          echo "           The raw-vs-SAE contrast is the half that answers whether the"
+          echo "           dictionary earns its place at this level."
         fi
       done
     done
   done
-  echo
-  echo "  (set RAW_NPY_ROOT to also run the raw-vs-SAE contrast at this level)"
   return $rc
 }
 run 5 "global level — remote-homology probe between domains" stage_global

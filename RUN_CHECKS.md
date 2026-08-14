@@ -119,8 +119,11 @@ The three levels therefore differ only in the relation predicted, not in the est
 is leaking and the real number is not interpretable. On a published-model dictionary here it
 gave AUROC 0.880 with the control at 0.504.
 
-Set `RAW_NPY_ROOT` to also run the raw-activation contrast at this level, which is what makes
-"does the dictionary help?" answerable globally as well as pairwise.
+It also runs the raw-activation contrast automatically wherever `outputs_raw_real/<arm>/layer_<L>/X.npy`
+exists — the same place the pairwise probe reads it, so `STAGE=10` having been run is the only
+precondition. That contrast is what makes "does the dictionary earn its place?" answerable
+globally as well as pairwise, and the stage says so loudly rather than skipping quietly if the
+raw activations are missing.
 
 *Measured: 268 s for a 3,840-feature dictionary at `--n-pairs 5000` on a laptop.*
 
@@ -149,5 +152,9 @@ the box.
 
 Stages 2, 4 and 5 need `Z.npy` in each layer dir and skip per cell with a message if it was
 pruned, rather than producing an empty comparison. Stages 3 and 5 need `cache/scope_40.fa`;
-stage 4 needs `cache/residue_features.csv` with `ss_8class` and `sasa`. Everything else
-soft-fails — send the last 50 lines plus `logs_checks/`.
+stage 4 needs `cache/residue_features.csv` with `ss_8class` and `sasa`, and **stops with an
+error rather than reporting a zero** if `ss_8class` turns out to be unfilled. Stage 4 also
+wants the random-init cells under `outputs_ctrl_randominit/` (`STAGE=15`) and stage 5 wants the
+raw activations under `outputs_raw_real/` (`STAGE=10`); both say so rather than skipping
+quietly, because those two are the contrasts that make the trained numbers readable.
+Everything else soft-fails — send the last 50 lines plus `logs_checks/`.

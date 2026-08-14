@@ -68,6 +68,16 @@ def load_labels(uids, lengths, offsets, n_res, features_csv, rsa_buried=0.1):
         masks["ss_strand"][sl] = np.isin(ss, list(SS_GROUPS["ss_strand"]))
         with np.errstate(invalid="ignore"):
             masks["rsa_buried"][sl] = rsa < rsa_buried
+
+    # cpu_stage.py fills ss_8class from DSSP only when it is present; an unfilled column is
+    # all "-", which would give prevalence 0.000 and a floor of 0.000 -- a number that looks
+    # like a result. Fail loudly instead.
+    for k, m in masks.items():
+        if m.sum() == 0:
+            raise SystemExit(
+                f"label {k!r} has ZERO positive residues in {features_csv}. That is a broken "
+                f"annotation, not a finding -- ss_8class is probably unfilled ('-' everywhere). "
+                f"Regenerate it with cpu_stage.py before trusting anything here.")
     return masks
 
 
