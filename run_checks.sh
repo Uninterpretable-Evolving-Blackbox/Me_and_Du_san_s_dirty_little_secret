@@ -121,6 +121,12 @@ stage_nshuf () {
   echo
   echo "  cells at n-shuffles=$NSHUF_HI: $n_done done, $n_skip skipped for a missing Z"
   [ "$n_skip" -gt 0 ] && echo "  NOTE: skipped cells are NOT in the comparison below."
+  if [ "$n_done" -eq 0 ]; then
+    echo
+    echo "  PRODUCED NOTHING. Every cell was skipped, so there is no comparison to read."
+    echo "  This is a failure, not a pass — do not send an empty results directory."
+    rc=1
+  fi
 
   # 5 vs 25, per cell. A stable mean is the result we want; a moving one means the paper's
   # numbers are sensitive to the size of the null and the null has to grow.
@@ -201,16 +207,17 @@ run 3 "fold-disjoint SAE/probe split (report; re-fit only with FOLDDISJ_APPLY=1)
 #
 # Measured: 99 s for a 3,840-feature dictionary on a laptop, so ~1 min per controlled cell.
 stage_trivial () {
-  local rc=0
+  local rc=0 n_cells=0
   for s in $SEEDS; do
     for arm in "ckpt_mlm_s${s}_token" "ckpt_clm_s${s}"; do
       for L in $DEPTHS_HEADLINE; do
         local LD="$OUT/$arm/layer_$L"
         local DEST="results_trivial_baseline/${arm}_L${L}"
         [ -f "$LD/Z.npy" ] || { echo "  [skip] no $LD/Z.npy"; continue; }
-        [ -f "$DEST/trivial_baseline.csv" ] && { echo "  [done] $arm L$L"; continue; }
+        [ -f "$DEST/trivial_baseline.csv" ] && { echo "  [done] $arm L$L"; n_cells=$((n_cells+1)); continue; }
         echo "=== [trivial] $arm L$L $(date +%H:%M:%S) ==="
         $PY -u experiment_trivial_baseline.py --layer-dir "$LD" --out "$DEST" || rc=1
+        n_cells=$((n_cells+1))
       done
     done
   done
@@ -230,6 +237,11 @@ stage_trivial () {
       done
     done
   done
+  if [ "$n_cells" -eq 0 ]; then
+    echo
+    echo "  PRODUCED NOTHING — no trained cell had a Z.npy. This is a failure, not a pass."
+    rc=1
+  fi
   if [ "$n_ri" -eq 0 ]; then
     echo
     echo "  NO random-init cells found under $RANDOMINIT_ROOT/ — run STAGE=15 bash RUN_MUSTRUNS.sh."
@@ -249,16 +261,17 @@ run 4 "trivial baseline — concept scores against their prevalence floor" stage
 # Measured: 268 s for a 3,840-feature dictionary at --n-pairs 5000 on a laptop, so ~3 min per
 # controlled cell. Read the shuffled-label control FIRST -- it must sit at ~0.5.
 stage_global () {
-  local rc=0
+  local rc=0 n_cells=0
   for s in $SEEDS; do
     for arm in "ckpt_mlm_s${s}_token" "ckpt_clm_s${s}"; do
       for L in $DEPTHS_HEADLINE; do
         local LD="$OUT/$arm/layer_$L"
         local DEST="results_global_probe/${arm}_L${L}"
         [ -f "$LD/Z.npy" ] || { echo "  [skip] no $LD/Z.npy"; continue; }
-        [ -f "$DEST/global_probe.csv" ] && { echo "  [done] $arm L$L"; continue; }
+        [ -f "$DEST/global_probe.csv" ] && { echo "  [done] $arm L$L"; n_cells=$((n_cells+1)); continue; }
         echo "=== [global] $arm L$L $(date +%H:%M:%S) ==="
         $PY -u experiment_global_probe.py --layer-dir "$LD" --out "$DEST" || rc=1
+        n_cells=$((n_cells+1))
         # raw contrast. Same location the pairwise probe uses (RUN_MUSTRUNS.sh:510), so
         # STAGE=10 having been run is the only precondition.
         local RAW="$RAW_ROOT/$arm/layer_$L/X.npy"
@@ -274,6 +287,11 @@ stage_global () {
       done
     done
   done
+  if [ "$n_cells" -eq 0 ]; then
+    echo
+    echo "  PRODUCED NOTHING — no cell had a Z.npy. This is a failure, not a pass."
+    rc=1
+  fi
   return $rc
 }
 run 5 "global level — remote-homology probe between domains" stage_global

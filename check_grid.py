@@ -112,8 +112,10 @@ def main():
 
     print(f"results dir: {res}")
     if not qual:
-        print("  NO sae_quality.txt rows found — nothing to audit.")
-        return 1 if a.strict else 0
+        print(f"  NO sae_quality.txt rows found under {res} — nothing to audit.")
+        print("  That is a FAILURE, not an empty pass: either --base is wrong or the grid")
+        print("  wrote nothing. Check the path before reading anything else as a result.")
+        return 1
 
     if unknown:
         print()

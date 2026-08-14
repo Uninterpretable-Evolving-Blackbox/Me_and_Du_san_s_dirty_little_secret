@@ -12,3 +12,10 @@ cache/pdb_files/
 results_concept_f1/
 results_rank_ev/
 results_token_ablation/
+
+# verification queue outputs (run_checks.sh) — sent back as an archive, never committed
+logs_checks/
+results_nshuffle_headline/
+results_trivial_baseline/
+results_global_probe/
+eval_set_folddisj/
