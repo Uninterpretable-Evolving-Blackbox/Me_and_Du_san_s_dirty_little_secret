@@ -50,6 +50,34 @@ RANDOMINIT_ROOT="${RANDOMINIT_ROOT:-outputs_ctrl_randominit}"   # STAGE=15
 K_SPARSE="${K_SPARSE:-256}"
 EXPANSION="${EXPANSION:-8}"
 
+# ------------------------------------------------------------------ preflight
+# Stages 2, 4 and 5 all read Z.npy, and Z is pruned after the main controlled run. Say so
+# ONCE, up front, rather than letting it surface as eighteen per-cell skips in stage two.
+_n_z=0; _n_want=0
+for _s in $SEEDS; do
+  for _a in "ckpt_mlm_s${_s}_token" "ckpt_clm_s${_s}"; do
+    for _L in $DEPTHS_HEADLINE; do
+      _n_want=$((_n_want+1))
+      [ -f "$OUT/$_a/layer_$_L/Z.npy" ] && _n_z=$((_n_z+1))
+    done
+  done
+done
+echo "preflight: $_n_z / $_n_want headline cells have Z.npy in $OUT/"
+if [ "$_n_z" -eq 0 ]; then
+  echo
+  echo "  !! NO Z.npy ANYWHERE. Stages 2, 4 and 5 all read it and will all fail."
+  echo "     Z is pruned after the main controlled run, so this is expected rather than broken."
+  echo "     Rebuild first (~2 h), then re-run this script:"
+  echo "         STAGE=1 bash RUN_MUSTRUNS.sh"
+  echo "     Stage 3 does not need Z and will still work:  ONLY=3 bash run_checks.sh"
+  echo
+elif [ "$_n_z" -lt "$_n_want" ]; then
+  echo "  NOTE: $((_n_want-_n_z)) headline cell(s) have no Z.npy and will be skipped by 2/4/5."
+fi
+[ -d "$RANDOMINIT_ROOT" ] || echo "preflight: no $RANDOMINIT_ROOT/ — stage 4 loses its random-init contrast (STAGE=15)"
+[ -d "$RAW_ROOT" ] || echo "preflight: no $RAW_ROOT/ — stage 5 loses its raw-vs-SAE contrast (STAGE=10)"
+echo
+
 want () {
   local n="$1"
   [ -n "$ONLY" ] && [ "$ONLY" != "$n" ] && return 1

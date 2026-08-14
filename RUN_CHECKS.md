@@ -8,6 +8,17 @@ bash run_checks.sh
 **About 3 hours if you skip the one GPU stage; four of the five stages need no GPU at all.**
 Start it and walk away.
 
+The script prints a preflight line before it does anything, so you will know in the first
+second whether the inputs are there. **If it says `0 / 18 headline cells have Z.npy`, stages 2,
+4 and 5 cannot run** — Z is pruned after the main controlled run, so this is expected rather
+than broken. Rebuild with `STAGE=1 bash RUN_MUSTRUNS.sh` (~2 h) and re-run, or do the one stage
+that needs no Z in the meantime with `ONLY=3 bash run_checks.sh`. Budget ~5 hours rather than
+~3 if the rebuild is needed.
+
+A stage that produces nothing is reported as **FAILED**, not as a pass. If the run ends with
+`All stages OK` then every stage actually did work — an empty results directory cannot look
+like a success.
+
 Job 4 (`RUN_500TPP_SEEDS.md`) is **still on hold** and nothing about it has changed: it still
 owns the GPU for days and it still only tightens an error bar on a result we already have.
 These five checks are what the paper needs next.
