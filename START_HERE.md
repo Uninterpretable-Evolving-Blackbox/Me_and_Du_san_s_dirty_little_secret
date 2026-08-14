@@ -33,12 +33,27 @@ Ignore the other RUN_*.md files. They are older and some of them contradict this
 **Four exceptions, all new (2026-08-07) and not superseded by anything here. Run them in
 this order — cheapest first, so a red one never blocks a cheap one:**
 
-| | brief | cost |
-|---|---|---|
-| 1 | **`RUN_NOMODEL_BASELINE.md`** — builds one layer dir whose features contain no model, which any metric taking `--layer-dir` can be pointed at. Attacks every metric here at once rather than one at a time. | minutes, CPU |
-| 2 | **`RUN_EXTRA_METRICS.md`** — three further published metrics (Adams, Li, SAEBench) on the same inputs, so the failure can be shown not to be specific to ours. | ~1 h CPU |
-| 3 | **`RUN_INTERPLM_ATTACK.md`** — InterPLM's *own published* metric on our models: their code, our backbone. Builds its own venv, does not touch `RUN_MUSTRUNS.sh`. | ~2–3 h setup + ~1–2 days grid |
-| 4 | **`RUN_500TPP_SEEDS.md`** — takes the 500 tok/param budget table off n=1. | **ON HOLD — do not start. See below.** |
+| | brief | cost | status |
+|---|---|---|---|
+| 1 | **`RUN_NOMODEL_BASELINE.md`** — builds one layer dir whose features contain no model, which any metric taking `--layer-dir` can be pointed at. Attacks every metric here at once rather than one at a time. | minutes, CPU | **DONE**, delivered 2026-08-10 |
+| 2 | **`RUN_EXTRA_METRICS.md`** — three further published metrics (Adams, Li, SAEBench) on the same inputs, so the failure can be shown not to be specific to ours. | ~1 h CPU | **DONE**, 96 cells, 0 failures |
+| 3 | **`RUN_INTERPLM_ATTACK.md`** — InterPLM's *own published* metric on our models: their code, our backbone. Builds its own venv, does not touch `RUN_MUSTRUNS.sh`. | ~2–3 h setup + ~1–2 days grid | **DONE** — 81/81, delivered 2026-08-14 |
+| 5 | **`RUN_CHECKS.md`** — the verification queue. **Run this next.** Grid audit, larger permutation null, fold-disjoint split, prevalence floors, global-level probe. | ~3 h, four of five stages CPU-only | **NEXT** |
+| 4 | **`RUN_500TPP_SEEDS.md`** — takes the 500 tok/param budget table off n=1. | ~200 GPU-h | **STILL ON HOLD — do not start. See below.** |
+
+### Job 3 is done. Run `RUN_CHECKS.md` next — still not job 4
+
+```bash
+git pull
+bash run_checks.sh
+```
+
+Job 4 has not been unblocked and nothing about it has changed. `RUN_CHECKS.md` is what the
+paper needs next and it costs about three hours against job 4's four to eight days.
+
+The grid completed on 2026-08-14: 81/81 SAEs across five conditions, archive checksum
+verified. `python check_grid.py` re-checks completeness and arm comparability in seconds and is
+free to run at any time.
 
 ### Run 1–3, then STOP and report
 
