@@ -37,6 +37,25 @@ Domain representation is the mean over the domain's residues. Mean pooling is th
 sensible choice, which is the point: a probe that succeeds on it is not relying on a clever
 readout.
 
+WHY THE SPLIT KEEPS BOTH ENDPOINTS, measured
+--------------------------------------------
+An earlier version of this file grouped each pair by the superfamily of its FIRST member,
+copying the pairwise probe. That is safe there -- both residues of a contact are in the same
+protein -- and wrong here, because the two domains of a pair are in different superfamilies by
+construction, so a test pair's second domain could sit in a training superfamily.
+
+Measured on ESM-2-35M layer 0: the leaky version reported **AUROC 0.880**, the strict version
+**0.616**. The leak was worth **+0.264**.
+
+The part worth remembering: the shuffled-label control did NOT catch it. It read 0.5045 leaky
+and 0.5082 strict. A label permutation tests for label leakage; it is blind to GROUP leakage,
+because permuting labels does not change which groups sit on which side of the split. Both
+checks are needed and neither substitutes for the other.
+
+Keeping only pairs whose endpoints fall on the same side costs test size -- about a third of
+the pairs straddle the boundary and are dropped -- and `n_dropped_straddling` is reported so
+that cost is visible rather than assumed.
+
 Usage:
     python experiment_global_probe.py --layer-dir outputs_ctrl/ckpt_mlm_s42_token/layer_14 \
         --out results_global_probe/mlm_s42_L14
@@ -87,17 +106,20 @@ def sample_pairs(fold, sfam, rng, n_per_class):
     for i, f in enumerate(fold):
         by_fold.setdefault(f, []).append(i)
 
-    pos = []
+    pos, tries = [], 0
     eligible = [f for f, m in by_fold.items() if len({sfam[i] for i in m}) >= 2]
+    max_tries = 200 * max(1, n_per_class)
     if eligible:
-        while len(pos) < n_per_class:
+        while len(pos) < n_per_class and tries < max_tries:
+            tries += 1
             f = eligible[rng.integers(len(eligible))]
             m = by_fold[f]
             i, j = int(m[rng.integers(len(m))]), int(m[rng.integers(len(m))])
             if i != j and sfam[i] != sfam[j]:
                 pos.append((i, j))
-            if len(pos) > 50 * n_per_class:      # degenerate input guard
-                break
+    if len(pos) < n_per_class:
+        print(f"  only {len(pos)} remote-homolog pairs drawn in {tries} tries "
+              f"(asked for {n_per_class}) — the eligible folds are the limit, not the sampler")
 
     neg, guard = [], 0
     while len(neg) < n_per_class and guard < 200 * max(1, n_per_class):
@@ -116,28 +138,36 @@ def evaluate(D, pos, neg, sfam, rng, shuffle_labels=False, split_seed=1234):
     F = np.vstack([pair_features(D, P[:, 0], P[:, 1]),
                    pair_features(D, N[:, 0], N[:, 1])])
     y = np.concatenate([np.ones(len(P)), np.zeros(len(N))])
-    # group each pair by the superfamily of its first member, so the split can be made
-    # superfamily-disjoint
-    grp = np.concatenate([sfam[P[:, 0]], sfam[N[:, 0]]])
+    # A pair has TWO endpoints and they are in different superfamilies by construction, so
+    # grouping on the first member alone would leave a test pair's second domain sitting in a
+    # training superfamily. Hold out superfamilies, then keep a pair only when BOTH of its
+    # endpoints fall on the same side; pairs that straddle the boundary are dropped.
+    a_sf = np.concatenate([sfam[P[:, 0]], sfam[N[:, 0]]])
+    b_sf = np.concatenate([sfam[P[:, 1]], sfam[N[:, 1]]])
 
     split_rng = np.random.default_rng(split_seed)
     if shuffle_labels:
         y = rng.permutation(y)
 
-    groups = np.unique(grp); split_rng.shuffle(groups)
+    groups = np.unique(np.concatenate([a_sf, b_sf])); split_rng.shuffle(groups)
     te_g = set(groups[: max(1, len(groups) // 5)])
-    te = np.array([g in te_g for g in grp])
-    if te.sum() < 20 or (~te).sum() < 20 or len(np.unique(y[~te])) < 2 or len(np.unique(y[te])) < 2:
-        return dict(auroc=None, ap=None, n_train=int((~te).sum()), n_test=int(te.sum()))
+    in_te = np.array([(x in te_g) and (z in te_g) for x, z in zip(a_sf, b_sf)])
+    in_tr = np.array([(x not in te_g) and (z not in te_g) for x, z in zip(a_sf, b_sf)])
+    n_straddle = int(len(y) - in_te.sum() - in_tr.sum())
+    te, tr = in_te, in_tr
+    if te.sum() < 20 or tr.sum() < 20 or len(np.unique(y[tr])) < 2 or len(np.unique(y[te])) < 2:
+        return dict(auroc=None, ap=None, n_train=int(tr.sum()), n_test=int(te.sum()),
+                    n_dropped_straddling=n_straddle)
 
-    mu, sd = F[~te].mean(0), F[~te].std(0) + 1e-6
+    mu, sd = F[tr].mean(0), F[tr].std(0) + 1e-6
     clf = LogisticRegression(max_iter=1000, C=1.0, class_weight="balanced",
                              solver="liblinear", random_state=42)
-    clf.fit((F[~te] - mu) / sd, y[~te])
+    clf.fit((F[tr] - mu) / sd, y[tr])
     s = clf.decision_function((F[te] - mu) / sd)
     return dict(auroc=float(roc_auc_score(y[te], s)),
                 ap=float(average_precision_score(y[te], s)),
-                n_train=int((~te).sum()), n_test=int(te.sum()))
+                n_train=int(tr.sum()), n_test=int(te.sum()),
+                n_dropped_straddling=n_straddle)
 
 
 def main():
@@ -171,6 +201,9 @@ def main():
     fold = np.array([fold_map.get(u, f"__f{i}") for i, u in enumerate(uids)])
     sfam = np.array([sfam_map.get(u, f"__s{i}") for i, u in enumerate(uids)])
 
+    if X.shape[0] != _n_res:
+        raise SystemExit(f"row mismatch: {a.mode} matrix has {X.shape[0]} rows but lengths.npy "
+                         f"sums to {_n_res}. Pooling would silently misalign domains.")
     D = pool_domains(X, uids, lengths, offsets)
     print(f"  {a.mode}: {D.shape[0]} domains x {D.shape[1]} features "
           f"| {len(set(fold))} folds, {len(set(sfam))} superfamilies")
@@ -189,6 +222,7 @@ def main():
            "n_pos": len(pos), "n_neg": len(neg),
            "auroc": real["auroc"], "ap": real["ap"],
            "auroc_shuffled_labels": ctrl["auroc"],
+           "n_dropped_straddling": real.get("n_dropped_straddling"),
            "n_train": real["n_train"], "n_test": real["n_test"],
            "seed": a.seed, "split_seed": a.split_seed,
            "seconds": round(time.time() - t0, 1)}

@@ -139,6 +139,9 @@ def main():
         X = np.load(a.raw_npy, mmap_mode="r")
     else:
         X = np.load(ld / "Z.npy", mmap_mode="r")
+    if X.shape[0] != n_res:
+        raise SystemExit(f"row mismatch: {a.mode} matrix has {X.shape[0]} rows but lengths.npy "
+                         f"sums to {n_res}. The label masks would silently misalign.")
     print(f"  {a.mode}: {X.shape[0]} residues x {X.shape[1]} features")
 
     masks = load_labels(uids, lengths, offsets, n_res, a.features_csv)

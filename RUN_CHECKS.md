@@ -115,9 +115,15 @@ Everything else mirrors the pairwise probe exactly — same symmetric `|a-b| ‖
 shuffled-label control drawn from its own generator, same `--seed 42` and `--split-seed 1234`.
 The three levels therefore differ only in the relation predicted, not in the estimator.
 
-**Read the shuffled-label control first — it must sit at ~0.5.** Anything else means the split
-is leaking and the real number is not interpretable. On a published-model dictionary here it
-gave AUROC 0.880 with the control at 0.504.
+**Read the shuffled-label control first — it must sit at ~0.5.** On a published-model
+dictionary here it gives AUROC 0.616 with the control at 0.508.
+
+> ⚠️ A caveat that cost us a number already. An earlier version of this split grouped each pair
+> by its first member only, so a test pair's second domain could sit in a training superfamily.
+> That version reported **0.880** against the corrected **0.616** — the leak was worth **+0.264**
+> — and **the shuffled-label control did not catch it**, reading 0.504 leaky and 0.508 strict.
+> Permuting labels tests for label leakage and is blind to group leakage. The split now requires
+> BOTH endpoints of a pair on the same side and reports how many pairs it drops for straddling.
 
 It also runs the raw-activation contrast automatically wherever `outputs_raw_real/<arm>/layer_<L>/X.npy`
 exists — the same place the pairwise probe reads it, so `STAGE=10` having been run is the only
