@@ -1,5 +1,7 @@
-> **Running something for me? Read [START_HERE.md](START_HERE.md).** The other
-> `RUN_*.md` files are older and some contradict it.
+> **Running something for me? Read [RUN_GAPS.md](RUN_GAPS.md)** — that is the
+> current job: three rescoring stages, about two hours, no pretraining. Older
+> context is in [START_HERE.md](START_HERE.md); the other `RUN_*.md` files are
+> older still and some contradict it.
 
 # Controlled MLM-vs-CLM protein LM experiment
 
