@@ -19,3 +19,13 @@ results_nshuffle_headline/
 results_trivial_baseline/
 results_global_probe/
 eval_set_folddisj/
+
+# macOS
+.DS_Store
+
+# paper build artefacts
+paper/*.aux
+paper/*.log
+paper/*.out
+paper/*.bbl
+paper/*.blg

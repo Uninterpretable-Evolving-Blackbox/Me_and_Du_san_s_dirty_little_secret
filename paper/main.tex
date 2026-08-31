@@ -1,0 +1,921 @@
+\documentclass{article} % For LaTeX2e
+\usepackage{iclr2027_conference,times}
+
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{array}
+\usepackage[dvipsnames]{xcolor}
+\usepackage{enumitem}
+
+% ---------------------------------------------------------------------------
+% Plain copy: no venue running head, no author block.  Comment out the \def
+% below to restore the ICLR submission furniture ("Under review as a conference
+% paper at ICLR 2027" and the anonymous-author line).
+% ---------------------------------------------------------------------------
+\def\PLAINCOPY{}
+\ifdefined\PLAINCOPY
+  \makeatletter
+  \def\@maketitle{\vbox{\hsize\textwidth
+    {\LARGE\sc \@title\par}
+    \lhead{}%
+    \vskip 0.3in minus 0.1in}}
+  \makeatother
+  \renewcommand{\headrulewidth}{0pt}
+\fi
+
+% ---------------------------------------------------------------------------
+% Working-copy markup.  Everything typeset in red is an open item that is
+% itemised in Appendix A (working notes).  Comment out the two lines below and
+% the \workingnotes switch at the bottom of this file to produce a clean copy.
+% ---------------------------------------------------------------------------
+% Uncomment the next line to build the clean submission copy: the red markup and
+% the working-notes appendix are dropped, and \chknote text disappears entirely.
+%\def\CLEANCOPY{}
+
+\newcommand{\red}[1]{\textcolor{red}{#1}}
+\newcommand{\opentag}[1]{\textcolor{red}{\textsuperscript{[\ref{#1}]}}}
+\newcommand{\chknote}[2]{\red{[\textsc{check} \ref{#2}: #1]}}
+\newcommand{\pend}[2]{\red{#1}\opentag{#2}}
+
+\ifdefined\CLEANCOPY
+  \renewcommand{\red}[1]{#1}
+  \renewcommand{\opentag}[1]{}
+  \renewcommand{\chknote}[2]{}
+  \renewcommand{\pend}[2]{#1}
+\fi
+
+\newcommand{\Lstruct}{\ensuremath{L_{\mathrm{struct}}}}
+\newcommand{\Lseq}{\ensuremath{L_{\mathrm{seq}}}}
+\newcommand{\dstruct}{\ensuremath{d_{\mathrm{struct}}}}
+\newcommand{\angstrom}{\text{\AA}}
+
+\title{When the Metric Goes Up:\\ A Training-Distribution Control for\\ Interpretability Evaluation}
+
+% Author names are suppressed automatically in submission mode; the block below
+% is used only once \iclrfinalcopy is uncommented.
+\author{Wenjun Gao \\
+Department of ... \\
+University College London \\
+\texttt{zcbtwga@ucl.ac.uk} \\
+\And
+Alex Fedorec \\
+Department of ... \\
+University College London \\
+\texttt{email}
+}
+
+%\iclrfinalcopy % Uncomment for camera-ready version, but NOT for submission.
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Protein language models (pLMs) are transformers over amino-acid sequences. Models trained on
+sequence alone encode structure and function, and SAE-based interpretability metrics are used
+to measure how well a model's features capture these properties. Such metrics are typically
+validated by showing that the score is large and survives multiple-comparison correction. We
+show that this is insufficient: a metric of this kind can rise when the relation it names is
+removed from the training data. We define a co-activation statistic, \Lstruct, that scores
+whether SAE features cluster on residues in spatial contact, and evaluate it on a controlled
+pair of masked- and causal-objective models sharing initialisation, corpus and batch order.
+The masked arm scores higher at every depth. We subject this result to six checks --- covering
+dictionary training, reconstruction quality, amino-acid composition and architecture. It
+survives all of them. The inference is nonetheless wrong. Retrained on a corpus with residue
+order destroyed, \Lstruct{} rises in every model-by-depth combination tested. An untrained
+network matches it. Direct probes for secondary structure and burial favour the opposite arm
+in every comparison. A single amino-acid indicator outscores every learned feature in five of
+six conditions. A published structural statistic, reimplemented from its Methods, fails the
+same control. What survives is a training-invariant floor that neither corpus nor budget
+moves.
+\end{abstract}
+
+\ifdefined\CLEANCOPY\else
+\red{\emph{Working copy.} Red text marks an open item: a value to check against the code, or a
+claim a queued run may change. Each carries a tag pointing to Appendix~\ref{app:working}, which
+is not part of the paper. The appendices cited in the text (A--P) are not included here: that
+material was lost with the drive and is being recovered. The two figures are described in place.}
+\fi
+
+\section{Introduction}
+
+Protein language models (pLMs) trained on amino-acid sequences encode structure and function,
+from residue contacts and secondary structure to binding sites and stability
+\citep{rives2021biological,rao2021transformer}, though what underlies this is debated;
+\citet{zhang2024protein} argue that pLMs capture coevolutionary statistics rather than protein
+physics. Sparse autoencoders (SAEs) are one instrument for asking what a model encodes,
+decomposing activations into a large dictionary of sparse features, each scored against protein
+annotations or structures \citep{simon2025interplm,adams2025mechanistic,gujral2025sparse}.
+
+Two kinds of score are in use, and they differ in what can validate them.
+\emph{Annotation-referenced} scores compare a feature's activations against an externally
+defined label, such as a Swiss-Prot site or a secondary-structure class, using F1 or AUROC
+\citep{simon2025interplm,adams2025mechanistic}. They have a reference value: a perfect score is
+defined, and the label exists independently of the feature. \emph{Relation-scored} statistics
+ask instead whether the residues a feature fires on stand in a specified geometric relationship
+to each other, such as spatial proximity within a distance cutoff, with the null generated by
+permuting the feature's own activations within each protein \citep{simon2025interplm}. No
+per-feature ground truth exists and no value is defined as correct, so the score is accepted on
+indirect grounds: it is large and it survives multiple-comparison correction.
+
+InterPLM \citep{simon2025interplm} publishes one metric of each kind. We report a case in which
+a relation-scored statistic met every one of those grounds, along with six further checks
+constructed against it, and the inference drawn from it was still wrong.
+
+\paragraph{The control.} We constructed a second training corpus in which the relation the
+metric targets has been destroyed while the quantities it might respond to instead --- amino-acid
+composition and sequence length --- are preserved exactly. We pretrained the same architecture on
+it under the same budget, fitted the same dictionary, and recomputed. The metric should not
+systematically increase when the relation it depends on is absent from training.
+
+\paragraph{Relation to prior work.} The manipulation itself is established.
+\citet{sinha2021masked} pretrained masked language models on word-order-permuted text and found
+that the resulting models scored surprisingly well on some parametric syntactic probes, which
+they read as a deficiency in how representations are tested for syntactic information. We apply
+the manipulation to an interpretability metric rather than to downstream capability. The nearest
+analogue in the probing literature is the control task of \citet{hewitt2019designing}, which
+randomises the labels to diagnose the probe's capacity; the control proposed here leaves the
+labels alone and destroys the relation in the training distribution. The nearest existing check
+in the SAE literature is the randomly initialised model: \citet{simon2025interplm} run a
+weight-randomised baseline, \citet{heap2025automated} showed that aggregate interpretability
+scores often fail to separate trained from random transformers, and \citet{korznikov2026sanity}
+develop related checks. We run that check alongside ours, and \S\ref{sec:randominit} establishes
+that the two diagnose different failures.
+
+\paragraph{The specimen.} Throughout, we use a comparison between two training objectives,
+masked and causal, on a controlled pair of pLMs: one backbone instantiated twice, sharing
+initialisation seed, corpus and batch order, with the attention mask and the loss built from it
+as the only difference. Existing cross-model comparisons of SAE features in pLMs vary objective,
+architecture, data and scale together, so feature-level differences cannot be attributed to any
+one factor \citep{gao2026structural}; the closest matched comparison equalises FLOPs or
+validation loss across separately trained models \citep[Appendix~D]{cheng2024compute} and
+evaluates downstream performance, whereas we match the training trajectory and use the pair to
+test a metric. Here the objective is the sole candidate explanation, which makes the metric's
+failure attributable rather than ambiguous. Section~\ref{sec:discussion} states what we do and do
+not conclude from the comparison itself.
+
+\paragraph{Contributions.} We introduce a training-distribution control for metrics that score a
+relation. We build a metric of our own, show that it survives every standard check we can
+construct, and then invalidate it from five directions: the corpus control, a random-initialisation
+baseline, a no-model layer, direct probes, and a definitional sweep. No single one would have
+caught every published metric we tested. We also show that the sequence-separation cutoff
+determines the sign of the masked-versus-causal comparison, and that no value of it we tested
+separates real from permuted training data.
+
+\section{Setup}
+
+\subsection{The pair}
+\label{sec:pair}
+
+We pretrained a 42.0M-parameter transformer in two arms: 30 pre-LN blocks, $d_{\mathrm{model}} =
+320$, 5 heads, SwiGLU, RoPE, and tied input and output embeddings, with the block shape anchored
+to ESM-C (EvolutionaryScale). One backbone was instantiated twice, and the only difference
+between arms was the attention mask and the loss built from it; initialisation seed, corpus and
+batch order were shared. The masked arm used 15\% masking with the standard 80/10/10 split; the
+causal arm predicted the next residue. Both arms were pretrained on three million sequences from
+the \texttt{ConvergeBio/uniref50} HuggingFace
+stream (shuffled with seed 42 and a 50{,}000-sequence buffer, first three million sequences
+retained)\opentag{f:uniref} at a maximum sequence length of 512 and a batch
+size of 32. Three seeds per arm gave six models, trained for 40{,}283 steps and approximately
+660M tokens, or 15.7 tokens per parameter; a scaling arm ran to 500 tokens per parameter, a
+32-fold increase in budget, \pend{at one seed per arm}{t:scaleseeds}.
+
+The pair does not hold the number of supervised positions fixed: the masked arm receives a target
+at 15\% of positions and the causal arm at every position. Equalising supervised positions instead
+of tokens leaves the effect in place (\S\ref{sec:confounds}).
+
+Dictionary fitting and evaluation used a separate set of 1{,}500 SCOPe 2.08 domains filtered at
+40\% sequence identity \citep{chandonia2022scope}, for which experimental structures are
+available. The feature matrix holds one row per residue, using the first 510 residues of each
+domain, for 293{,}760 rows; residue labels were measured on the untruncated 295{,}240 residues.
+Nine depths were sampled, indexed by block and by position among the sampled depths; both indices
+are used throughout (Table~\ref{tab:depths}). A cell is one (arm, depth, seed) combination. The
+corpus control (\S\ref{sec:shuffled}) ran at blocks 11, 14 and 18, at three seeds per arm.
+
+\begin{table}[t]
+\caption{The nine sampled depths, by block index and by relative position in the stack.}
+\label{tab:depths}
+\begin{center}
+\begin{tabular}{lccccccccc}
+\toprule
+Block & 0 & 4 & 7 & 11 & 14 & 18 & 22 & 26 & 29 \\
+Depth & 0\% & 13\% & 25\% & 38\% & 50\% & 63\% & 75\% & 88\% & 100\% \\
+\bottomrule
+\end{tabular}
+\end{center}
+\end{table}
+
+\subsection{The dictionary and the statistic}
+\label{sec:statistic}
+
+\Lstruct{} adapts the structural-clustering analysis of \citet{simon2025interplm}, which compares
+a feature's mean activation over spatial neighbours against a within-protein permutation null. We
+depart from their settings in two ways: a contact radius of 8\,\angstrom{} rather than
+6\,\angstrom, following the CASP contact definition \citep{schaarschmidt2018assessment}, and a
+minimum sequence separation of $|i - j| \ge 12$ rather than none, which excludes local backbone
+contacts including those internal to $\alpha$-helices \citep{marks2011protein,morcos2011direct}
+and retains the medium- and long-range classes on which contact prediction is conventionally
+assessed. Contacts are measured between C$\alpha$ rather than C$\beta$ atoms.
+
+The active set $A_f$ is the set of residues whose activation strictly exceeds the 90th percentile
+of feature $f$'s activation across the evaluation set, and the structural neighbourhood is
+%
+\begin{equation}
+\mathcal{N}(i) \;=\; \bigl\{\, j \;:\; \lVert \mathrm{C}\alpha_i - \mathrm{C}\alpha_j \rVert <
+8\,\angstrom \;\; \text{and} \;\; |i - j| \ge 12 \,\bigr\},
+\label{eq:neighbourhood}
+\end{equation}
+%
+so, with $\bar{a}_f(i)$ the mean activation of $f$ over $\mathcal{N}(i)$ and
+$\bar{a}^{\pi}_f$ the same quantity under a within-protein permutation $\pi$ of $f$'s
+activations,
+%
+\begin{equation}
+\Lstruct(f) \;=\;
+\frac{\Bigl\{\mathbb{E}_{i \in A_f}\bigl[\bar{a}_f(i)\bigr] - \mathbb{E}_{i}\bigl[\bar{a}_f(i)\bigr]\Bigr\}
+      \;-\; \mathbb{E}_{\pi}\Bigl[\mathbb{E}_{i \in A_f}\bigl[\bar{a}^{\pi}_f(i)\bigr]
+            - \mathbb{E}_{i}\bigl[\bar{a}^{\pi}_f(i)\bigr]\Bigr]}
+     {\mathrm{SD}\bigl(a_f\bigr)},
+\label{eq:lstruct}
+\end{equation}
+%
+with the null taken over five such permutations, and $\mathrm{SD}(a_f)$ the standard deviation
+of $f$'s raw activations across the evaluation set. Both the observed and the null term are
+centred by the mean of the neighbour-averaged activation over all residues; the two centring
+terms do not cancel, because the permutation is within-protein while the neighbour average is
+degree-weighted. Two implementation details matter for reading absolute values. With a TopK
+dictionary the 90th percentile of a feature's activations is frequently exactly zero, so $A_f$
+degenerates to the non-zero support rather than to a tenth of the residues; and any feature with
+$|A_f| < 5$ is assigned $\Lstruct = 0$, so means taken over all 2{,}560 features include exact
+zeros for dead and near-dead features. The statistic assumes that structural relations appear as co-activation of the
+same sparse feature; \pend{information distributed across features, or encoded across pairs of
+representations, would not be detected}{t:pairwise}. Section~\ref{sec:cutoff} varies the separation cutoff;
+\S\ref{sec:dstruct} evaluates Simon and Zou's statistic at their own settings. The statistic is
+not a Cohen's $d$: the numerator is in neighbour-averaged units and the denominator is the
+standard deviation of raw activations.
+
+\pend{Five permutations are few enough that the null estimate affects absolute levels. Raising it
+to 25 permutations across 27 cells shifts mean \Lstruct{} by $+0.0073$, never by more than
+$+0.0187$, and changes no cell's sign. Absolute levels below should therefore be read as
+approximate; every between-condition comparison is unaffected.}{t:perm100}
+
+Two symbols are used for between-arm comparisons, on different scales. $\Delta$ is the raw
+masked-minus-causal difference in mean \Lstruct{} over all 2{,}560 features; the fold-disjoint
+refit of \S\ref{sec:leak} gives $\Delta = +0.0141$. $d$ is the standardised between-arm effect
+size over the three seed means, giving $d = +0.2568$ for the same comparison. The two differ by
+roughly a factor of eighteen, and each figure below is labelled with the symbol it belongs to.
+
+\subsection{The shuffled corpus}
+\label{sec:shuffled}
+
+We permuted residues within each sequence of the pretraining corpus at construction, independently
+per sequence across the same three million sequences, from a single random stream. Length and
+per-sequence amino-acid composition are preserved exactly, since a permutation reorders the same
+multiset, while all order is destroyed, and with it the correspondence between sequence position
+and spatial position. Both arms trained on the same shuffled corpus under the same budget;
+dictionary fitting, evaluation set and the \Lstruct{} implementation were identical to the native
+runs, and structural evaluation still uses real experimental structures.
+
+Relative to their natively trained counterparts, causal held-out perplexity rises 10.6\% and
+masked pseudo-perplexity 11.1\%. The near-equal degradation rules out one arm having learned the
+shuffled corpus substantially better than the other.
+
+We tested one destruction procedure, and a second permutation seed would not constitute a
+different one: composition and length are fixed by construction, so any seed gives a statistically
+near-identical corpus \pend{(\S\ref{sec:discussion})}{t:blockshuffle}.
+
+\subsection{A leak in the evaluation split}
+\label{sec:leak}
+
+The dictionary was fitted on 1{,}350 domains and \Lstruct{} was scored on all 1{,}500, so every
+fitting domain also appeared in the scored set. The original 150-domain holdout did not fix this:
+118 of them (78.7\%) share a SCOPe fold with a fitting domain.
+
+Scoring on those 150 domains alone reduces the effect by 30\% but leaves it significant ($d =
++0.1797$, 95\% CI $[0.1105, 0.2489]$). A fold-disjoint replacement, in which none of the 151
+held-out domains shares a fold with a fitting domain, reproduces the arm separation to within
+0.4\% across all 18 refitted cells ($\Delta = +0.01410$ against $+0.01415$). No structural
+classification guarantees unrelatedness --- all extant proteins share evolutionary history --- but
+fold-disjointness removes the level at which the leak operates.
+
+The leak inflates the effect size but does not produce it. Figures below are computed on the
+original split unless stated; Appendix~M gives the fold-disjoint values and the construction.
+
+\section{Confounds that do not account for the effect}
+\label{sec:confounds}
+
+A bidirectional model attends to residues on both sides of a contact; a causal model carries
+structural information forward from left to right. The natural prediction is that bidirectional
+training produces representations in which structural co-activation is stronger, and \Lstruct{}
+appears to confirm it.
+
+\Lstruct{} is higher in masked than in causal models: $d = +0.2568$, seed means $0.2413 / 0.2455 /
+0.2837$, 95\% CI over the three seed means $[0.1987, 0.3149]$. A two-sided $t$-test on the three
+seed means (SD $0.02336$, SE $0.01349$, $t = 19.04$, $\mathrm{df} = 2$) gives $p = 0.0027$, and
+seven of nine depths survive Benjamini--Hochberg correction. Under a prediction-matched protocol
+that equalises the number of supervised positions instead of tokens, all 18 seed-by-depth cells
+are significant.
+
+We then constructed six checks, each testing whether the difference could arise without either
+model having learned more structure. Depths are given by block index throughout.
+
+\begin{itemize}[leftmargin=1.2em]
+
+\item \textbf{Dictionary seed.} Is the effect dictionary-fitting noise? Across six arm-by-depth
+cells ($2$ arms $\times$ 3 depths, one model seed) at three dictionary seeds, the median
+seed-to-seed SD of mean \Lstruct{} is $0.00034$, against $0.00093$ across three model seeds
+computed the same way on the same cells --- 37\% of it, and far below $\Delta = 0.0141$. Three
+seeds make the SD estimate itself noisy.
+
+\item \textbf{A frozen shared dictionary.} Do the two arms learn different dictionaries? Forcing
+both arms onto one dictionary under a frozen decoder, a frozen encoder and a soft-frozen variant
+\citep{korznikov2026sanity} leaves $\Delta$ positive in all nine conditions, across three depths
+and three variants. It grows at the two shallower depths and shrinks at the deepest: block 7
+$+0.0146 \rightarrow +0.0217$, block 14 $+0.0167 \rightarrow +0.0241$, block 22 $+0.0072
+\rightarrow +0.0063$. A shared crosscoder \citep{minder2025crosscoders} gives the same direction
+and decays with depth, at $+0.0209$, $+0.0160$ and $+0.0009$ for blocks 7, 14 and 22.
+\pend{This condition runs at blocks 7, 14 and 22 rather than the 11, 14 and 18 of the corpus
+control, sharing only block 14.}{t:frozendepths} The frozen conditions were run without a
+bootstrap and carry no confidence intervals. Training details for all three variants and the
+crosscoder are in Appendix~G.
+
+\item \textbf{No dictionary at all.} Does the SAE create the effect? Recomputing \Lstruct{} with
+no autoencoder anywhere, taking each of the 320 residual-stream dimensions as a feature in place
+of the 2{,}560 SAE latents, leaves $\Delta$ at $+0.0084$, $+0.0056$ and $+0.0022$ at blocks 11, 14
+and 18 --- positive at every depth, and in the same depth ordering as the SAE version.
+
+\item \textbf{Reconstruction quality.} The masked arm's SAE reconstructs better than the causal
+arm's (higher explained variance), which could inflate its \Lstruct. Across all 27 seed-by-depth
+cells (9 depths $\times$ 3 seeds), the between-arm explained-variance gap correlates with the
+effect at $\rho = +0.475$, but the correlation is carried entirely by the two shallowest depths
+(blocks 0 and 4). At those depths the effect itself is near zero --- the two arms differ by
+$0.00102$ at block 0 against \chknote{$0.0161$ or $0.01719$? reconcile with
+Table~\ref{tab:untrained}}{c:recon} at block 11 --- and both fail Benjamini--Hochberg correction.
+Over the remaining seven depths, $\rho = -0.043$ ($p = 0.85$). The confound is concentrated where
+there is no effect to confound.
+
+\item \textbf{Amino-acid composition.} Does the metric track which residues a feature fires on
+rather than where they sit? For each feature we computed a background-corrected selectivity score
+measuring how concentrated a feature's activations are across the 20 residue types
+(Appendix~H). \pend{We predicted it would correlate positively with \Lstruct, since residues
+sharing identity or chemical properties tend to cluster spatially. It does not: Spearman $\rho$
+over all 2{,}560 features is $-0.044$ on the masked arm and $-0.122$ on the causal.}{t:top1share}
+
+A control statistic confirms this is specific to the structural neighbourhood. \Lseq{} is
+\Lstruct{} with the spatial neighbourhood replaced by the four nearest sequence neighbours $\{i-2,
+i-1, i+1, i+2\}$, following InterPLM's sequential-clustering definition
+\citep{simon2025interplm}: same formula, same null, same evaluation set, same features.
+Selectivity correlates with \Lseq{} at $-0.676$ and $-0.412$. Composition drives the sequential
+statistic strongly and the structural one weakly, and since the two differ only in the
+neighbourhood, a confound acting through the dictionary or the evaluation set could not separate
+them. Section~\ref{sec:indicator} establishes the complementary fact: the level a single
+composition feature can reach is high.
+
+\item \textbf{Bidirectional access.} The masked model attends to residues on both sides of a
+contact; the causal model attends only to earlier sequence positions. This asymmetry could explain
+the masked advantage if \Lstruct{} were driven by contacts whose partner lies later in sequence,
+which the causal arm cannot see. That predicts the masked advantage should be larger for
+later-in-sequence contacts than for earlier ones. We split each feature's structural neighbourhood
+by contact direction and took the between-arm interaction, coded so that a positive value favours
+later-in-sequence contacts (Appendix~K). It is $-0.1422$, negative at all nine depth-by-seed cells
+(3 depths $\times$ 3 seeds), $p = 0.004$. The sign is the opposite of the prediction, so the
+account is contradicted rather than merely unsupported.
+
+\end{itemize}
+
+With the caveats above, the effect survives all six checks. The masked advantage holds across
+three model seeds, survives multiple-comparison correction at seven of nine depths, and orders the
+two arms consistently. Section~\ref{sec:invalid} is what happens when the result is asked one
+further question.
+
+\section{Evidence that the inference is invalid}
+\label{sec:invalid}
+
+Five lines of evidence invalidate the inference behind the masked advantage; the first four are
+tested independently, and the fifth concerns a parameter choice. A positive control on sequential
+locality (\S\ref{sec:order}) confirms the machinery works. Section~\ref{sec:dstruct} shows that a
+published statistic fails the same control, and \S\ref{sec:threechecks} compares three checks
+across six metrics.
+
+\subsection{It rises when order is removed from training}
+\label{sec:order}
+
+\Lstruct{} is higher after order-destroyed training in every combination of arm, depth and seed:
+18 of 18 (2 arms $\times$ 3 depths $\times$ 3 seeds). At the model level that is six of six
+independent pairs, and an exact one-sided sign test gives $p = 0.016$. One cell in the scaling arm
+(masked, block 14) reverses; it lies outside this grid.
+
+Averaged over three seeds at blocks 11, 14 and 18, the causal arm moves from $0.00240$ native to
+$0.05201$ order-destroyed, and the masked arm from $0.01655$ to $0.02730$. The causal base is near
+zero, so ratios are large and variable; the direction is what matters, and all 18 differences are
+positive.
+
+Increasing the budget 32-fold (from 15.7 to 500 tokens per parameter), the order-destroyed
+\Lstruct{} moves by $-4$\% to $+23$\%, while native \Lstruct{} shifts by up to 116\%. The
+order-destroyed level is largely insensitive to training budget --- a training-invariant floor.
+Appendix~C gives all scaling-arm values.
+
+\Lseq, the same statistic applied to sequential neighbours (offsets $\pm 1$ and $\pm 2$), favours
+the causal arm at every depth --- the mechanistically expected result, since a model that reads
+left to right should carry more sequence-local structure. \pend{Under shuffled-sequence
+retraining, \Lseq{} in the masked arm collapses to 13--26\% of its native value at the five
+deepest blocks}{c:lseq}: destroying sequence order destroyed sequential locality, and the measure
+registered it. \Lstruct{} rose in every cell under the same intervention. The two statistics use
+identical machinery on identical models; one responds correctly and the other responds backwards.
+The positive control is partial --- \pend{the causal arm's \Lseq{} inflates 1.7--1.9$\times$
+rather than falling}{c:lseq}, and we have no account of that asymmetry. It establishes that
+co-activation statistics of this kind can detect a real signal and that the failure in \Lstruct{}
+is specific, not generic. Full values are in Appendix~D.
+
+No setting of the separation cutoff we tested separates native from order-destroyed \Lstruct;
+\S\ref{sec:cutoff} gives the full sweep.
+
+\subsection{Training does not lift the metric above its random-initialisation level}
+\label{sec:randominit}
+
+If \Lstruct{} measures learned structure, training should raise it above the level of an untrained
+network. \citet{simon2025interplm} run a weight-randomised baseline on their own models; we run a
+random-initialisation check on the controlled pair (Table~\ref{tab:untrained}).
+
+\begin{table}[t]
+\caption{Mean \Lstruct{} for trained and untrained networks at the three control depths. Trained
+values are the mean over three model seeds with the seed-to-seed SD; the untrained baseline is the
+mean over three initialisations (seeds 42, 43, 44).}
+\label{tab:untrained}
+\begin{center}
+\begin{tabular}{llccc}
+\toprule
+Arm & Block & Trained ($n = 3$) & Untrained ($n = 3$) & Trained $\div$ untrained \\
+\midrule
+Masked & 11 & $0.01881 \pm 0.00122$ & $0.01821 \pm 0.00078$ & 103.3\% \\
+Masked & 14 & $0.01667 \pm 0.00107$ & $0.01778 \pm 0.00014$ & 93.7\% \\
+Masked & 18 & $0.01417 \pm 0.00070$ & $0.01765 \pm 0.00065$ & 80.3\% \\
+\midrule
+Causal & 11 & $0.00162 \pm 0.00034$ & $0.01790 \pm 0.00005$ & 9.0\% \\
+Causal & 14 & $0.00144 \pm 0.00085$ & $0.01846 \pm 0.00052$ & 7.8\% \\
+Causal & 18 & $0.00413 \pm 0.00101$ & $0.01901 \pm 0.00009$ & 21.7\% \\
+\bottomrule
+\end{tabular}
+\end{center}
+\end{table}
+
+An untrained network scores about $+0.018$, flat across both architectures and all three blocks.
+The trained masked arm never clears that floor --- it is within one seed-to-seed SD of it at block
+11 and falls to 80\% of it by block 18. The trained causal arm sits an order of magnitude beneath
+it throughout. The gap between arms is a training effect; the level is not.
+
+This reverses the reading from \S\ref{sec:order}. It is not that masked training organises
+structure; it is that causal training suppresses a property the architecture already has at
+initialisation. The corpus control cannot distinguish these --- it shows the metric rises on
+order-destroyed data, but not whether the rise is above or below the random floor. The two checks
+diagnose different failures, which is why both are needed.
+
+\red{[Figure~1 --- to be produced. Mean \Lstruct{} at blocks 11, 14 and 18. Filled markers are
+trained values averaged over three model seeds (error bars: seed-to-seed SD); open markers are
+untrained values averaged over three initialisations. The grey band spans the untrained cells
+($+0.01765$ to $+0.01901$).]}\opentag{fig:one}
+
+The same baseline separates the three structural measures reported here. Concept-F1 clears it
+cleanly at the per-concept level, with several concepts at $1.000$ trained against $0.000$
+untrained. Structure probes clear it partially: untrained AUROC runs $0.65$ to $0.71$ against
+trained $0.65$ to $0.90$, so the bottom of the trained range sits at the untrained floor while the
+top is well clear of it. \Lstruct{} does not clear it at all.
+
+\subsection{Direct probes favour the causal arm}
+\label{sec:probes}
+
+\Lstruct{} scores SAE features; the underlying question is whether the model encodes structure at
+all. Linear probes for helix, strand and burial, fitted directly on the residue representations
+with no SAE anywhere, answer that question independently. Values are masked minus causal, averaged
+over three seeds; helix, strand and burial are test F1, contact is precision at $L/5$
+(Table~\ref{tab:probes}).
+
+\begin{table}[t]
+\caption{SAE-free probe results at three depths. Values are masked minus causal, so a negative
+number favours the causal arm.}
+\label{tab:probes}
+\begin{center}
+\begin{tabular}{lcccc}
+\toprule
+Depth & Helix & Strand & Burial & Contact P@$L/5$ \\
+\midrule
+Block 7 (25\%)  & $-0.0234$ & $-0.0442$ & $-0.0087$ & $+0.0051$ \\
+Block 11 (38\%) & $-0.0512$ & $-0.0815$ & $-0.0126$ & $+0.0017$ \\
+Block 14 (50\%) & $-0.0388$ & $-0.0697$ & $-0.0031$ & $-0.0058$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+\end{table}
+
+All three residue-label probes favour the causal arm at every depth and in every seed: 27 of 27 (3
+depths $\times$ 3 labels $\times$ 3 seeds). Contact precision at $L/5$ does not follow them --- it
+favours the masked arm at blocks 7 and 11 and the causal arm at block 14 --- so the 27-cell count
+covers the three residue-label probes only. \citet{cheng2024compute} find a masked advantage on
+contact prediction at 3B parameters and 200B tokens; our budget is three orders of magnitude
+smaller, and we read this column as underpowered rather than as disagreeing with them.
+
+\pend{Blocks 11 and 14 are two of the three depths at which the corpus control was run, and are
+where \Lstruct{} gives its largest masked advantage. The probes therefore disagree with the metric
+over two of its three control depths.}{t:probe18}
+
+The direct measure of structural content disagrees with the indirect one at the depths the claim
+rests on. The disagreement is not a logical contradiction, since \Lstruct{} measures spatial
+clustering of SAE features while the probes measure linear decodability. Replacing the linear
+probe with an MLP made all nine depth-by-label comparisons stronger and none weaker, with the
+per-seed count still 27 of 27. Probe architectures are in Appendix~E.
+
+\subsection{A single amino-acid indicator outscores almost every learned feature}
+\label{sec:indicator}
+
+\citet{simon2025interplm} report that SAEs trained on weight-randomised pLMs still yield hundreds
+of features tied to individual amino acid types, while capturing no biological concepts at all. We
+ask what such a feature scores on a structural metric, using a no-model baseline: a synthetic layer
+of 29 indicator functions over residue identity and its groupings, comprising 20 amino acids, 8
+standard biochemical groupings such as hydrophobic and aromatic (Appendix~I), and one all-ones
+column. Each indicator is substituted for a feature's activation vector in
+Equation~\eqref{eq:lstruct} and scored by the same code, with the same null and the same
+evaluation set.
+
+Scored this way, \texttt{aa:C}, the indicator for cysteine, reaches $+0.4221$, roughly four
+times the best-scoring learned feature on the causal arm. It outscores every learned feature in
+five of six cells (2 arms $\times$ 3 depths), and in the sixth exactly one feature beats it.
+
+Cysteine is the expected winner, and the runners-up say why. Disulfide bonds place cysteine pairs
+in spatial contact at arbitrary sequence separation; the next seven indicators are the hydrophobic
+and aromatic residues and their class groupings, which cluster in three dimensions through core
+packing. Both are chemical facts about proteins that hold without any model. Because an indicator
+does not depend on the model, these values are identical in every cell: on the causal arm, five of
+the 29 constants outscore all 2{,}560 learned features.
+
+This establishes a level, not a mechanism. A quantity computable from residue identity alone
+reaches most of the range the metric reports. Section~\ref{sec:confounds}'s composition check
+establishes the complementary fact: the level a single composition feature can reach is high. So
+the metric's scale is reachable by composition, even though its variation is not driven by it. A
+metric with that property cannot be read as a measure of learned structure on magnitude alone.
+
+\subsection{The sign depends on a definitional choice}
+\label{sec:cutoff}
+
+The masked advantage in \Lstruct{} exists only above a minimum sequence separation of $|i - j| \ge
+5$. Sweeping the cutoff at block 11, the between-arm effect size moves from $d = -2.2096$ at gap 1
+to $d = +0.3425$ at gap 12, crossing zero at gap 5 and plateauing past gap 6; deeper blocks cross
+earlier, at gaps 4 and 3. Below gap 5, the causal arm wins. The cutoff therefore determines which
+arm the metric favours, not merely by how much. Gap 12 sits in a wide flat region with the sweep
+maximum at gap 24 or beyond, so it was not tuned to the result. But the result requires a
+choice, and a different choice reverses it. The sweep is computed at a 6\,\angstrom{} contact
+radius (Appendix~F gives all 48 rows); \S\ref{sec:order} uses the same sweep for a different
+contrast.
+
+The reversal has an arithmetic explanation. At 6\,\angstrom{} with no separation floor, consecutive
+residues ($\approx 3.8$\,\angstrom{} apart) qualify as structural neighbours: 99.5\% of adjacent $(i, i+1)$
+pairs fall inside the cutoff, and offsets $|i-j| \le 3$ account for 72\% of all edges. The
+structural set substantially contains its own sequential baseline. \pend{At those settings
+\Lstruct{} reproduces \Lseq{} to within 2.5\% at every depth}{c:agreement} --- the two are
+measuring the same thing. The sign reversal is therefore the sequential result re-reported through
+a structural definition that has absorbed the sequential baseline.
+
+\red{[Figure~2 --- to be produced. Line plot: separation cutoff on the $x$-axis, $d$ on the
+$y$-axis, one line per block, horizontal rule at zero.]}\opentag{fig:two}
+
+\subsection{A published structural statistic under the corpus control}
+\label{sec:dstruct}
+
+InterPLM \citep{simon2025interplm} publish a structural-clustering statistic \dstruct{} addressing
+the same operational question as ours: for each feature, they identify the highest-activation
+residue per protein, compute the mean activation of residues within 6\,\angstrom{} of it, and
+compare against a null of five within-protein permutations, sampling up to 100 proteins per
+feature. The released repository does not implement \dstruct, so we reimplemented it from the
+published Methods. One decision left open in that description changes the result; we report both
+settings.
+
+The procedure gates features at $0.6$ of a maximum activation. The Methods leave the reference
+maximum open; the released normalisation code computes a dataset-wide per-feature maximum, which we
+treat as the primary reading. Under a per-protein maximum the gate admits a median of 1{,}485 of
+1{,}500 proteins per feature; under the dataset-wide maximum, about 98. The fifteen-fold difference
+propagates into every number the statistic produces (Appendix~P).
+
+\begin{table}[t]
+\caption{\dstruct{} under the per-protein gate, aggregated over each arm. ``Significant features''
+is the mean count of features called significantly structural.}
+\label{tab:dstruct}
+\begin{center}
+\begin{tabular}{lcccc}
+\toprule
+& \multicolumn{2}{c}{Mean \dstruct} & \multicolumn{2}{c}{Significant features} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}
+Arm & Real & Shuffled & Real & Shuffled \\
+\midrule
+Causal & $0.4484$ & $0.4672$  & $985.7$ & $1349.3$ \\
+Masked & $0.1376$ & $-0.0431$ & $323.3$ & $25.0$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+\end{table}
+
+On the causal arm, models trained on permuted residues score higher on both the mean and the count
+of features called significantly structural, 1{,}349 against 986 (Table~\ref{tab:dstruct}). The
+masked arm runs in the opposite direction. Under the dataset-wide gate the causal arm shows the
+same direction block by block (\S\ref{sec:threechecks}, and Appendix~P, Table~2), at a higher
+absolute level: $+0.5326$, $+0.5800$ and $+0.5800$ native against $+0.6086$, $+0.7475$ and
+$+0.8713$ order-destroyed. The two gates disagree on the level and agree on the
+failure, so the result does not turn on the ambiguity. Absolute values are not comparable across
+gates and are not compared here. \pend{These values are a single seed.}{t:dstructseeds}
+
+\dstruct{} is computed at 6\,\angstrom{} with no separation floor, which is the setting at which
+\S\ref{sec:cutoff}'s cutoff sweep shows \Lstruct{} has no training-invariant floor. The two
+statistics therefore fail the control at different settings, and the family resemblance is in the
+construction rather than in the failure.
+
+InterPLM use \dstruct{} to filter which features merit interpretation, not to compare models; they
+report it once, on one model at one layer. Our result does not contradict any published comparison,
+since none exists. It bounds what the statistic can be read as measuring.
+
+Their second metric, concept-F1, scores how well individual SAE features align with known
+biological labels. We evaluated it against 80 labels: 74 from SCOPe structural taxonomy (fold,
+superfamily, family and class) and 6 residue-level annotations (secondary structure and solvent
+accessibility)\opentag{t:conceptswissprot}. It passes our corpus control --- order-destroyed scores fall to $0.27$--$0.42\times$
+of native on both arms. However, native values are close to zero throughout ($0.009$--$0.062$), so
+the pass has limited weight. \pend{The aggregate favours the causal arm at four depths
+(50--88\%), contradicting the probes of \S\ref{sec:probes}. The contradiction is an artefact of
+aggregation: the 74 taxonomy labels favour the causal arm and dominate the aggregate, while the 6
+residue-level labels favour the masked arm at the same depths, consistent with the probes.
+Taxonomy labels are protein-level properties --- detecting ``fold c.1'' requires a feature that
+fires somewhere in the domain --- and no single label's best feature exceeds a mean test-F1 of
+$0.058$.}{c:conceptdecomp} Appendix~J gives the full decomposition.
+
+Section~\ref{sec:threechecks} extends this, running all three checks across \dstruct{} and four
+other published metrics alongside \Lstruct.
+
+\subsection{The three checks catch different metrics}
+\label{sec:threechecks}
+
+The corpus control, the no-model layer and the standard random-init check are not redundant with
+each other. Table~\ref{tab:threechecks} runs all three over six metrics on identical inputs.
+
+\Lstruct{} and \dstruct{} are defined above. The remaining four are: concept-F1, the fraction of
+biological concepts matched to at least one SAE feature \citep{simon2025interplm}, run using their
+released code; single-latent F1, a per-feature classification score against structural and
+functional annotations \citep{adams2025mechanistic}; the co-activation--decoder-geometry
+correlation $\rho$, which measures whether features that frequently co-activate also have similar
+decoder weight vectors \citep{li2025geometry}; and $k$-sparse probing AUROC from SAEBench, which
+trains a sparse linear probe on SAE features to predict token-level labels
+\citep{karvonen2025saebench}. Implementation details are in Appendix~J.
+
+\begin{table}[t]
+\caption{Six metrics under three validity checks. A metric \emph{fails} if its value on the
+modified condition is at or above its value on the native model in the cells we ran, and
+\emph{passes} if the modified condition scores below it. \emph{No verdict} covers cells that were
+not run, are undefined on that input, or are underpowered; the reason is given in each such cell.
+Verdicts are read off the values themselves; where a cell reports a significance test, that test is
+the source's own. Per-cell values are in Appendix~J.}
+\label{tab:threechecks}
+\begin{center}
+\small
+\begin{tabular}{>{\raggedright\arraybackslash}p{0.27\textwidth}>{\raggedright\arraybackslash}p{0.20\textwidth}>{\raggedright\arraybackslash}p{0.19\textwidth}>{\raggedright\arraybackslash}p{0.19\textwidth}}
+\toprule
+Metric (source) & Shuffled-corpus & No-model & Random-init \\
+\midrule
+\Lstruct{} (ours) & fails --- 18/18 cells & fails --- \texttt{aa:C} above all & fails --- at floor \\
+\addlinespace
+\dstruct{} \citep{simon2025interplm}, reimpl. & fails on causal, passes on masked & passes --- 0 survive correction & \pend{no verdict --- not run}{t:dstructuntrained} \\
+\addlinespace
+concept-F1 \citep{simon2025interplm} & passes both arms & \pend{fails --- 4 of 12 concepts}{c:concept12} & passes --- separates \\
+\addlinespace
+single-latent F1 \citep{adams2025mechanistic} & no verdict --- underpowered & no verdict --- underpowered & no verdict --- underpowered \\
+\addlinespace
+co-activation $\rho$ \citep{li2025geometry} & passes --- 18/18 cells & no verdict --- undefined & no verdict --- underpowered \\
+\addlinespace
+SAEBench \citep{karvonen2025saebench} & no verdict --- underpowered & passes --- lowest of all & passes --- 6/6 cells \\
+\bottomrule
+\end{tabular}
+\end{center}
+\end{table}
+
+Three metrics have enough data for a verdict on both the corpus control and the no-model check.
+\Lstruct{} fails both, and fails the random-init check as well --- the only metric caught by all
+three. Concept-F1 passes the corpus control but fails the no-model check. \dstruct{} fails the
+corpus control on the causal arm and passes on the masked, at a single seed. The remaining cells
+are either unrun, undefined for that input, or underpowered, and are not read as failures.
+
+The checks are not ordered by severity. The no-model layer scores 29 indicator functions that do
+not depend on any model, so its values are identical whatever corpus a model was trained on; it can
+catch a metric whose scale is reachable without a model, and can say nothing about what training
+does. The corpus control varies only the training distribution and holds the scoring layer fixed,
+so it can catch a metric that rises when the relation is destroyed, and says nothing about the
+level. \Lstruct{} fails both, for different reasons.
+
+The single-latent F1 row is an absence rather than a failure: the metric has no discriminative
+power on this concept set for any of the five inputs, a finding about prevalence-dominated concept
+metrics rather than about the models. Appendix~J decomposes the 83--91\% figure into its two modes.
+
+\section{Discussion}
+\label{sec:discussion}
+
+\paragraph{What is identified.} The metric rises when the relation is removed from training, which
+removes the inference that a higher \Lstruct{} means more learned structure.
+Sections~\ref{sec:randominit} and \ref{sec:probes} narrow what it measures instead: the quantity
+survives random initialisation and disagrees with direct decodability. The stronger claim, that it
+measures nothing about structure, is not identified.
+
+\paragraph{Cost.} The control requires one additional pretraining run per arm at the original
+budget (approximately 0.8 GPU-hours on one RTX PRO 6000), and scales with the model. It should be
+run once per metric on a small controlled pair rather than once per model. The no-model layer
+requires no pretraining and caught concept-F1, which the corpus control cleared; the corpus control
+caught \dstruct, which the no-model layer cleared. The three are complements, and the cheap ones do
+not substitute for the expensive one.
+
+\paragraph{Limitations: the control.}
+\begin{itemize}[leftmargin=1.2em]
+\item \pend{One destruction procedure (\S\ref{sec:shuffled}). Replicating the treatment requires a
+structurally different destruction, such as a cross-sequence shuffle preserving only global
+composition, or a block shuffle preserving local windows, rather than another permutation
+seed.}{t:blockshuffle}
+\item Training- and evaluation-distribution shift are separated. Order-destroyed models were
+rescored on an order-permuted evaluation set (18 cells). The causal arm keeps essentially all of
+its elevation ($-9\%$ at block 11, $+3\%$ at block 18); the masked arm loses two-thirds and falls
+below the natively trained masked arm. The permuted evaluation set permutes the residue string
+only: no permutation indices are recorded, and the scoring code reads coordinates by position, so
+activations were scored in permuted-index order against the native contact graph. The run
+therefore measures co-activation over a real contact graph whose residue identities have been
+decoupled: a stronger manipulation than scoring on order-destroyed input, and one that bears on
+\S\ref{sec:order} rather than on this limitation.
+\item \pend{Coverage. The corpus control ran at blocks 11, 14 and 18, the three depths where the
+masked advantage is largest. Early and late blocks are untested.}{t:depthgrid}
+\end{itemize}
+
+\paragraph{Limitations: the measurement.}
+\begin{itemize}[leftmargin=1.2em]
+\item \pend{The denominator is untested. \Lstruct{} divides by $\mathrm{SD}(a_f)$, and we have not
+recomputed it with a fixed or rank-based denominator, though the components are computed separately
+in the analysis code.}{t:denominator}
+\item Activation scales differ between conditions. Order-destroyed dictionaries have activation
+scales roughly an order of magnitude below their native counterparts. Those scale ratios do not
+track the ratios in \Lstruct{} and move in opposite directions between arms, which is evidence that
+the scale gap does not propagate through the denominator rather than a direct test of
+scale-invariance.
+\item Reconstruction quality tracks the metric. Varying only the SAE while holding the model fixed,
+\Lstruct{} tracks reconstruction quality (Appendix~G). \pend{The reconstruction gap between native
+and order-destroyed models is large enough that, depending on the fit, it could account for 20\% to
+all of the rise in \S\ref{sec:order}}{c:dose} --- a range six configurations per arm cannot narrow.
+\item Dictionary quality differs between conditions. Seven of the thirty order-destroyed cells
+carry a degeneracy flag set by the SAE pipeline, six of them on the masked arm and one on the
+causal. Order-destroyed dictionaries also reconstruct better than native ones (validation explained
+variance $0.99$ against $0.89$--$0.98$ masked, $0.88$--$0.91$ against $0.67$--$0.77$ causal), so a
+dictionary-quality account of the rise remains open. The larger failure is on the causal arm, whose
+dictionaries carry one flag between them, and \S\ref{sec:indicator} shows the metric's level is
+reachable with no dictionary at all.
+\end{itemize}
+
+\paragraph{Limitations: the comparison.}
+\begin{itemize}[leftmargin=1.2em]
+\item \pend{The fold-disjoint split. Only the arm levels of \S\ref{sec:leak} were recomputed on it.
+The corpus control of \S\ref{sec:order} is computed on the original split, where the contamination
+is common to both conditions being compared.}{t:folddisjoint}
+\item \pend{\dstruct{} coverage. The control is a single seed, and no untrained baseline was run
+for it.}{t:dstructuntrained}
+\item Perplexity is provisional. The masked-arm pseudo-perplexities depend on a mask-token
+identification corrected during analysis.
+\end{itemize}
+
+\paragraph{Limitations: scope.}
+\begin{itemize}[leftmargin=1.2em]
+\item One scale. The controlled pair is 42M parameters. \pend{Whether the training-invariant floor
+persists at larger scales is untested.}{n:onescale}
+\end{itemize}
+
+\paragraph{Scope of the claims.} We claim that a metric can rise when the relation it names is
+destroyed, that six checks spanning dictionary training, reconstruction quality, composition and
+architecture did not detect this, that a random-init baseline and a data control diagnose different
+things, and that one extra pretraining run makes the failure visible. A workshop version reported
+the masked advantage as a positive result \citep{gao2026structural}; the controls here supersede
+that claim. Nothing here claims that masked pretraining is better or worse than causal at anything
+biological, nor that any metric here is worthless outside the conditions we ran.
+
+\subsubsection*{Reproducibility statement}
+
+The controlled pair is 30 pre-LN blocks, $d_{\mathrm{model}} = 320$, 5 heads, SwiGLU and RoPE,
+trained with AdamW ($\beta = 0.9, 0.95$), decoupled weight decay $0.1$ with zero decay on
+normalisation weights, gradients clipped to global norm $1.0$, learning rate $6 \times 10^{-4}$
+with 500 warm-up steps and cosine decay to one tenth of peak, bfloat16 autocast, no gradient
+accumulation, batch size 32, maximum sequence length 512. Within each seed the two arms share
+initial parameter values, training corpus and batch order; only the attention mask and the loss
+built from it differ. Dictionaries are TopK with $k = 256$ and expansion 8, trained with AdamW at
+$5 \times 10^{-5}$, batch size 4096 residues, 60 epochs, final-epoch weights, no checkpoint
+selection, AuxK over 64 auxiliary latents at coefficient $1/32$. Appendices~A and B give the full
+configuration; Appendix~P gives reproduction notes for both reimplemented statistics.
+
+\bibliography{references}
+\bibliographystyle{iclr2027_conference}
+
+\appendix
+
+\ifdefined\CLEANCOPY\else
+\section{Outstanding items}
+\label{app:working}
+
+\red{\emph{Not part of the paper. Red text in the main text points here.}}
+
+\subsection{To verify}
+
+\begin{enumerate}[label=C\arabic*., ref=C\arabic*, leftmargin=2.6em]
+
+\item \label{c:recon} \textbf{Reconstruction bullet, \S\ref{sec:confounds}.} ``$0.0161$ at block
+11'' against Table~\ref{tab:untrained}, which gives $0.01881 - 0.00162 = 0.01719$. Reconcile.
+
+\item \label{c:lseq} \textbf{\Lseq{} values, \S\ref{sec:order}.} ``Collapses to 13--26\%'' and
+``inflates 1.7--1.9$\times$'' are from v1, seed 42. Recompute on three seeds.
+
+\item \label{c:agreement} \textbf{$\Lstruct \approx \Lseq$ agreement, \S\ref{sec:cutoff}.} Stated
+as ``within 2.5\% at every depth'', but the v1 pairs ($-2.266 / -2.210$, $-0.508 / -0.479$,
+$-0.025 / -0.008$) give relative gaps of 2.5\%, 5.7\% and 68\%. Recompute or restate.
+
+\item \label{c:conceptdecomp} \textbf{Concept-F1 decomposition, \S\ref{sec:dstruct}.} The 80
+labels (74 SCOPe taxonomy, 6 residue-level) reproduce exactly from \texttt{cache/scope\_40.fa} and
+\texttt{cache/residue\_features.csv} at \texttt{--min-domains 10}. The per-depth split and the
+$0.039$--$0.058$ test-F1 range are still v1.
+
+\item \label{c:concept12} \textbf{Table~\ref{tab:threechecks}, concept-F1 no-model cell.} ``4 of 12 concepts'' is
+inconsistent with the 80 labels of \S\ref{sec:dstruct}; 12 is the family-level slice alone.
+Identify which run produced it.
+
+\item \label{c:dose} \textbf{Dose--response range, \S\ref{sec:discussion}.} ``20\% to all''
+against v1's 4\%--129\%.
+
+\end{enumerate}
+
+\subsection{Runs queued}
+
+\begin{enumerate}[label=T\arabic*., ref=T\arabic*, leftmargin=2.6em]
+
+\item \label{t:top1share} \texttt{top1\_share} agreement. \texttt{ONLY=1 bash RUN\_TIER1.sh}.
+Seconds. A disagreement drops the check count from six to five.
+
+\item \label{t:depthgrid} Corpus control at the other six depths.
+\texttt{ONLY=1 bash RUN\_DEPTH\_GRID.sh}. 75 min.
+
+\item \label{t:denominator} Fixed and rank-based denominator.
+\texttt{ONLY=2 bash RUN\_TIER1.sh}. 45 min. The per-feature SD is not stored, so this is a second
+pass over the activations, not a re-read.
+
+\item \label{t:probe18} Probes at block 18. \texttt{ONLY=2 bash RUN\_DEPTH\_GRID.sh}. Under an
+hour.
+
+\item \label{t:perm100} 100-permutation null. \texttt{NSHUF\_HI=100 ONLY=2 bash run\_checks.sh}.
+Replaces the 5-versus-25 caveat in \S\ref{sec:statistic}.
+
+\item \label{t:folddisjoint} Fold-disjoint refit of the corpus control.
+\texttt{FOLDDISJ\_APPLY=1 ONLY=3 bash run\_checks.sh}. The shuffled half is already run.
+
+\item \label{t:dstructseeds} Three seeds for \dstruct. \texttt{ONLY=3 bash RUN\_TIER1.sh}. 12 h,
+CPU; 6 h with \texttt{GATES=global}.
+
+\item \label{t:dstructuntrained} \dstruct{} untrained baseline.
+\texttt{ONLY=4 bash RUN\_TIER1.sh}. 6 h. The only ``not run'' cell in
+Table~\ref{tab:threechecks}.
+
+\item \label{t:pairwise} Pairwise contact probes over pairs of residue representations, SAE and raw, with
+shuffled-label and separation-matched controls. \texttt{STAGE=11 bash RUN\_MUSTRUNS.sh}. 1 h, CPU.
+Tests the assumption in \S\ref{sec:statistic} that structure shows up as co-activation of a single
+feature: \Lstruct{} cannot see a relational encoding.
+
+\item Feature labelling. \texttt{label\_features.py} is untracked on the GPU box, so it needs
+committing rather than writing.
+
+\end{enumerate}
+
+\subsection{Not queued}
+
+\begin{enumerate}[label=N\arabic*., ref=N\arabic*, leftmargin=2.6em]
+\item \label{t:frozendepths} Frozen-dictionary depths at 11 / 14 / 18. Retrains the shared
+dictionaries; days.
+\item \label{t:conceptswissprot} Concept-F1 on Simon and Zou's Swiss-Prot set. About 68 h.
+\item \label{t:blockshuffle} Block-shuffle destruction. Needs pretraining.
+\item \label{t:scaleseeds} Extra seeds in the scaling arm, currently $n = 1$ (seed 42). About
+200 GPU-h.
+\item \label{n:onescale} One scale. The pair is 42M parameters.
+\item v1's top-features contact reversal ($+0.0300$ from raw activations against $-0.0113$
+through the top-1024 \Lstruct{} features). Possible appendix.
+\end{enumerate}
+
+\subsection{To look up}
+
+\begin{enumerate}[label=L\arabic*., ref=L\arabic*, leftmargin=2.6em]
+\item \label{f:uniref} UniRef50 release behind the \texttt{ConvergeBio/uniref50} snapshot.
+\end{enumerate}
+
+\subsection{Figures}
+
+\begin{enumerate}[label=FIG\arabic*., ref=FIG\arabic*, leftmargin=2.6em]
+\item \label{fig:one} Mean \Lstruct{} at blocks 11, 14 and 18: trained (filled, $\pm$ seed-to-seed
+SD) against untrained (open), grey band $+0.01765$ to $+0.01901$. (\S\ref{sec:randominit})
+\item \label{fig:two} Cutoff sweep: separation cutoff on $x$, $d$ on $y$, one line per block,
+rule at zero. (\S\ref{sec:cutoff})
+\end{enumerate}
+
+\fi
+
+\end{document}

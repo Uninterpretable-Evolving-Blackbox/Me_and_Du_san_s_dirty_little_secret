@@ -24,6 +24,26 @@ these changed.
 
 ## 👉 WHAT TO RUN, IN THIS ORDER
 
+**Current queue: see [START_HERE.md](START_HERE.md), job 6.** That is the authoritative list.
+Short version, cheapest first:
+
+```bash
+git pull
+ONLY=1 bash RUN_TIER1.sh                      # seconds
+ONLY=1 bash RUN_DEPTH_GRID.sh                 # 75 min
+ONLY=2 bash RUN_TIER1.sh                      # 45 min
+ONLY=2 bash RUN_DEPTH_GRID.sh                 # <1 h
+STAGE=11 bash RUN_MUSTRUNS.sh                 # ~1 h
+NSHUF_HI=100 ONLY=2 bash run_checks.sh
+FOLDDISJ_APPLY=1 ONLY=3 bash run_checks.sh
+ONLY=3 bash RUN_TIER1.sh                      # 12 h CPU
+ONLY=4 bash RUN_TIER1.sh                      # 6 h
+```
+
+The two jobs below are **finished** and are kept for the record.
+
+---
+
 Two jobs, back to back. Everything else is on hold.
 
 ```bash

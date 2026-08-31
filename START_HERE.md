@@ -40,6 +40,45 @@ this order — cheapest first, so a red one never blocks a cheap one:**
 | 3 | **`RUN_INTERPLM_ATTACK.md`** — InterPLM's *own published* metric on our models: their code, our backbone. Builds its own venv, does not touch `RUN_MUSTRUNS.sh`. | ~2–3 h setup + ~1–2 days grid | **DONE** — 81/81, delivered 2026-08-14 |
 | 5 | **`RUN_CHECKS.md`** — the verification queue. **Run this next.** Grid audit, larger permutation null, fold-disjoint split, prevalence floors, global-level probe. | ~3 h, four of five stages CPU-only | **NEXT** |
 | 4 | **`RUN_500TPP_SEEDS.md`** — takes the 500 tok/param budget table off n=1. | ~200 GPU-h | **STILL ON HOLD — do not start. See below.** |
+| 6 | **`RUN_TIER1.sh`** — the paper's remaining pre-submission queue. Resumable, packages its own archive. | ~19 h, almost all CPU | **NEW (2026-08-31)** |
+
+### Job 6 — the paper's remaining queue (added 2026-08-31)
+
+Run these in this order, cheapest first, so a long one never blocks a short one. Every line is
+resumable and skips finished work, so interrupt freely and re-run. Nothing here retrains a model
+or refits a dictionary.
+
+```bash
+git pull
+
+ONLY=1 bash RUN_TIER1.sh                      # seconds — top1_share agreement, reads existing output
+ONLY=1 bash RUN_DEPTH_GRID.sh                 # 75 min  — corpus control at the other six depths
+ONLY=2 bash RUN_TIER1.sh                      # 45 min  — fixed and rank-based denominator
+ONLY=2 bash RUN_DEPTH_GRID.sh                 # <1 h    — probes at block 18
+STAGE=11 bash RUN_MUSTRUNS.sh                 # ~1 h    — pairwise contact probes, SAE and raw
+NSHUF_HI=100 ONLY=2 bash run_checks.sh        # 100-permutation null
+FOLDDISJ_APPLY=1 ONLY=3 bash run_checks.sh    # fold-disjoint refit, native arm
+ONLY=3 bash RUN_TIER1.sh                      # 12 h CPU — d_struct at three model seeds
+ONLY=4 bash RUN_TIER1.sh                      # 6 h     — d_struct untrained baseline
+```
+
+`bash RUN_TIER1.sh --plan` prints the plan and the cost without running anything.
+
+**Two things to send back that need no compute:**
+
+1. `outputs_ctrl_folddisj/*/*/struct_seq_metrics.csv` — the *native* fold-disjoint cells. They
+   already exist here; they were just not in the last archive. Without them the fold-disjoint
+   shuffled numbers have nothing to be divided by.
+2. `git add` the untracked scripts on this box and push — `label_features.py`,
+   `experiment_interplm_metric_dsgate.py`, `patch_dsgate.py`, `patch_raw_coact*.py`,
+   `run_queue_0804.sh`, `run_500tpp.sh`, `run_ppl500.sh`, `run_shuf500_eval.sh`, `unwrap_sae.py`,
+   `merge_stage5.py`, `extract_esm2.py`, `interplm_sae_encode.py`. Five of them produced published
+   numbers and exist in one copy.
+
+**Still not authorised:** `RUN_500TPP_SEEDS.md` (job 4), a block-shuffle corpus, and retraining
+the shared dictionaries at blocks 11/14/18.
+
+---
 
 ### Job 3 is done. Run `RUN_CHECKS.md` next — still not job 4
 
