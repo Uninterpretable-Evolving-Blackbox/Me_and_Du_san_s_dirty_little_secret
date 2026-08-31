@@ -86,17 +86,37 @@ def main():
                          "composition/length/position rather than structure. Writes to a "
                          "distinct default out-dir so it can never overwrite the real corpus.")
     ap.add_argument("--shuffle-residues-seed", type=int, default=1234)
+    ap.add_argument("--block-shuffle", type=int, default=0, metavar="K",
+                    help="SECOND DESTRUCTION PROCEDURE: permute contiguous blocks of K "
+                         "residues instead of individual residues. Length and per-sequence "
+                         "composition are preserved exactly, as with --shuffle-residues, but "
+                         "local windows of K residues survive intact, so short-range order is "
+                         "kept and only long-range order is destroyed. The paper's stated "
+                         "limitation is that it tests one destruction procedure; this is a "
+                         "structurally different one rather than another permutation seed. "
+                         "Implies --shuffle-residues. Writes to its own default out-dir.")
     args = ap.parse_args()
     args.out_dir_explicit = any(a.startswith('--out-dir') for a in sys.argv[1:])
     if args.smoke:
         args.n_sequences, args.shuffle_buffer = 2000, 5000
         args.out_dir = str(Path.home() / "own_sae_data" / "uniref50_smoke")
+    if args.block_shuffle < 0:
+        raise SystemExit("--block-shuffle must be >= 0")
+    if args.block_shuffle == 1:
+        raise SystemExit("--block-shuffle 1 is the same as --shuffle-residues; use that instead")
+    if args.block_shuffle:
+        args.shuffle_residues = True
     if args.shuffle_residues and not args.out_dir_explicit:
         # Never share a directory with the real corpus. An explicit --out-dir is honoured.
+        tag = f"_blk{args.block_shuffle}" if args.block_shuffle else ""
         args.out_dir = str(Path.home() / "own_sae_data" /
-                           ("uniref50_smoke_shuf" if args.smoke else "uniref50_pilot_shuf"))
+                           (("uniref50_smoke_shuf" if args.smoke else "uniref50_pilot_shuf") + tag))
     shuf_rng = np.random.RandomState(args.shuffle_residues_seed)
-    if args.shuffle_residues:
+    if args.block_shuffle:
+        print(f"!! BLOCK-SHUFFLED CORPUS, block size {args.block_shuffle} "
+              f"(seed {args.shuffle_residues_seed}) — second destruction procedure\n"
+              f"   -> {args.out_dir}")
+    elif args.shuffle_residues:
         print(f"!! RESIDUE-SHUFFLED CORPUS (seed {args.shuffle_residues_seed}) — "
               f"construct-validity control, NOT a real corpus\n   -> {args.out_dir}")
 
@@ -143,7 +163,17 @@ def main():
             # ONLY thing that differs is residue order. BOS/EOS are added afterwards
             # and are never permuted.
             _a = np.frombuffer(s.encode("ascii"), dtype=np.uint8).copy()
-            shuf_rng.shuffle(_a)
+            if args.block_shuffle:
+                # Permute contiguous blocks, not residues. A permutation of a
+                # partition reorders the same multiset, so length and composition
+                # are preserved exactly, as in the residue-level case; what
+                # survives is order INSIDE each block.
+                k = args.block_shuffle
+                blocks = [_a[i:i + k] for i in range(0, _a.size, k)]
+                order = shuf_rng.permutation(len(blocks))
+                _a = np.concatenate([blocks[i] for i in order]) if len(blocks) > 1 else _a
+            else:
+                shuf_rng.shuffle(_a)
             s = _a.tobytes().decode("ascii")
         ids = [sp["bos"]] + [aa2id[a] for a in s] + [sp["eos"]]
         tokens.append(np.array(ids, dtype=np.uint8))
@@ -165,6 +195,7 @@ def main():
                 dropped=dict(aa=d_aa, length=d_len, holdout=d_hold),
                 tokenizer="esm-c EsmSequenceTokenizer",
                 shuffle_residues=bool(args.shuffle_residues),
+                block_shuffle=(args.block_shuffle or None),
                 shuffle_residues_seed=(args.shuffle_residues_seed
                                        if args.shuffle_residues else None),
                 vocab_size=64,  # ESM-C's embedding slot count: nn.Embedding(64, d_model)

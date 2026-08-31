@@ -873,6 +873,11 @@ Replaces the 5-versus-25 caveat in \S\ref{sec:statistic}.
 \item \label{t:dstructseeds} Three seeds for \dstruct. \texttt{ONLY=3 bash RUN\_TIER1.sh}. 12 h,
 CPU; 6 h with \texttt{GATES=global}.
 
+\item \label{t:blockshuffle} Second destruction procedure: permute contiguous blocks of 16
+residues, so short-range order survives and only long-range order is destroyed.
+\texttt{bash RUN\_BLOCKSHUFFLE.sh}. About 6 h at three seeds, 3 h at one: the corpus is an hour
+and a 42M run is 47 minutes, so this is not the multi-day job it was costed as.
+
 \item \label{t:dstructuntrained} \dstruct{} untrained baseline.
 \texttt{ONLY=4 bash RUN\_TIER1.sh}. 6 h. The only ``not run'' cell in
 Table~\ref{tab:threechecks}.
@@ -893,7 +898,6 @@ committing rather than writing.
 \item \label{t:frozendepths} Frozen-dictionary depths at 11 / 14 / 18. Retrains the shared
 dictionaries; days.
 \item \label{t:conceptswissprot} Concept-F1 on Simon and Zou's Swiss-Prot set. About 68 h.
-\item \label{t:blockshuffle} Block-shuffle destruction. Needs pretraining.
 \item \label{t:scaleseeds} Extra seeds in the scaling arm, currently $n = 1$ (seed 42). About
 200 GPU-h.
 \item \label{n:onescale} One scale. The pair is 42M parameters.

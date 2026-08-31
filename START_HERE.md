@@ -60,7 +60,15 @@ NSHUF_HI=100 ONLY=2 bash run_checks.sh        # 100-permutation null
 FOLDDISJ_APPLY=1 ONLY=3 bash run_checks.sh    # fold-disjoint refit, native arm
 ONLY=3 bash RUN_TIER1.sh                      # 12 h CPU — d_struct at three model seeds
 ONLY=4 bash RUN_TIER1.sh                      # 6 h     — d_struct untrained baseline
+bash RUN_BLOCKSHUFFLE.sh                      # ~6 h    — second destruction procedure
 ```
+
+`RUN_BLOCKSHUFFLE.sh` is the only line that trains anything, and it is last because it is the
+longest. It is also the one that closes the paper's first stated limitation. It was previously
+costed as a multi-day job; it is not. The corpus takes an hour and a 42M model takes 47 minutes at
+the 233k tok/s measured on this box, so six models and eighteen metric cells come to about six
+hours. `SEEDS=42 bash RUN_BLOCKSHUFFLE.sh` does it at one seed in about three. It refuses to start
+if its paths would touch the real corpus or the real checkpoints.
 
 `bash RUN_TIER1.sh --plan` prints the plan and the cost without running anything.
 
@@ -75,8 +83,9 @@ ONLY=4 bash RUN_TIER1.sh                      # 6 h     — d_struct untrained b
    `merge_stage5.py`, `extract_esm2.py`, `interplm_sae_encode.py`. Five of them produced published
    numbers and exist in one copy.
 
-**Still not authorised:** `RUN_500TPP_SEEDS.md` (job 4), a block-shuffle corpus, and retraining
-the shared dictionaries at blocks 11/14/18.
+**Still not authorised:** `RUN_500TPP_SEEDS.md` (job 4, ~200 GPU-h) and retraining the shared
+dictionaries at blocks 11/14/18 (days, for a tidier table). Both are poor trades against what is
+above.
 
 ---
 
