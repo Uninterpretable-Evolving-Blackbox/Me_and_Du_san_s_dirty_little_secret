@@ -42,6 +42,12 @@ ONLY=5 bash RUN_TIER1.sh                      # <1 h
 bash RUN_BLOCKSHUFFLE.sh                      # ~6 h, the only line that trains
 ```
 
+Then check the delivery before reading anything off it:
+
+```bash
+python verify_paper_claims.py --results <unpacked batch>
+```
+
 The two jobs below are **finished** and are kept for the record.
 
 ---

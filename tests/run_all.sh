@@ -6,7 +6,8 @@ cd "$(dirname "$0")/.."
 PY="${PY:-python3}"
 rc=0
 echo "### syntax"
-for f in rescore_denominator.py analyze_top1_agreement.py prep_controlled_corpus.py; do
+for f in rescore_denominator.py analyze_top1_agreement.py prep_controlled_corpus.py \
+         verify_paper_claims.py; do
   $PY -m py_compile "$f" && echo "  [PASS] py_compile $f" || { echo "  [FAIL] py_compile $f"; rc=1; }
 done
 for f in RUN_TIER1.sh RUN_BLOCKSHUFFLE.sh; do
@@ -21,6 +22,9 @@ $PY tests/test_block_shuffle.py || rc=1
 echo
 echo "### block-shuffle driver, end to end against stubs"
 bash tests/test_run_blockshuffle.sh || rc=1
+echo
+echo "### paper-claim verifier"
+$PY tests/test_verify_paper_claims.py || rc=1
 echo
 echo "### top1_share agreement"
 bash tests/test_top1_agreement.sh || rc=1

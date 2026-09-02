@@ -73,6 +73,23 @@ if its paths would touch the real corpus or the real checkpoints.
 
 `bash RUN_TIER1.sh --plan` prints the plan and the cost without running anything.
 
+### Checking a delivery
+
+After unpacking any batch, run this before reading a number off it:
+
+```bash
+python verify_paper_claims.py --results <dir with the unpacked archives or the .tgz files>
+```
+
+It recomputes every figure in the paper that the delivery covers and prints the paper's value
+next to the computed one. Reads only, seconds, no GPU. It exits non-zero if a claim CHANGED,
+so it can gate a batch. A cell that appears in two archives must agree in both, which is the
+check that catches a mispaired seed.
+
+On the 2026-09-02 batch: 22 pass, 2 changed, 0 missing. Everything published that the batch
+covers reproduces exactly — Table 2's six trained means, §4.1's four quoted means, and
+Δ = +0.01415. The two that changed are the block-18 probes, which are new depths.
+
 **If you hit the selectivity CSV bug:** fixed. No committed script had ever built the *native*
 `results_rigor/aa_selectivity.csv` — `RUN_MUSTRUNS.sh` stage 2 only builds the shuffled one, and
 `experiment_aa_selectivity.py` defaults to `--root outputs_outlier` with the ESM-2 / RITA pair,
