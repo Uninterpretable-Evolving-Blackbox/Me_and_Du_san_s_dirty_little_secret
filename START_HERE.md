@@ -58,18 +58,14 @@ or refits a dictionary.
 ```bash
 git pull
 
-ONLY=1 bash RUN_TIER1.sh                      # minutes — builds the selectivity CSV, then reads it
-ONLY=1 bash RUN_DEPTH_GRID.sh                 # 75 min  — corpus control at the other six depths
-ONLY=2 bash RUN_TIER1.sh                      # 45 min  — fixed and rank-based denominator
-ONLY=2 bash RUN_DEPTH_GRID.sh                 # <1 h    — probes at block 18
-STAGE=11 bash RUN_MUSTRUNS.sh                 # ~1 h    — pairwise contact probes, SAE and raw
-NSHUF_HI=100 ONLY=2 bash run_checks.sh        # 100-permutation null
-FOLDDISJ_APPLY=1 ONLY=3 bash run_checks.sh    # fold-disjoint refit, native arm
-ONLY=3 bash RUN_TIER1.sh                      # 12 h CPU — d_struct at three model seeds
-ONLY=4 bash RUN_TIER1.sh                      # 6 h     — d_struct untrained baseline
-ONLY=5 bash RUN_TIER1.sh                      # <1 h    — Benjamini-Hochberg across nine depths
-bash RUN_BLOCKSHUFFLE.sh                      # ~6 h    — second destruction procedure
+ONLY=5 bash RUN_TIER1.sh                      # ~15 min-1 h  Benjamini-Hochberg across nine depths
+STAGE=11 bash RUN_MUSTRUNS.sh                 # ~1 h  CPU    pairwise contact probes, SAE and raw
+FOLDDISJ_APPLY=1 ONLY=3 bash run_checks.sh    # ~1-3 h GPU   fold-disjoint refit, native arm
+NSHUF_HI=25 ONLY=2 bash run_checks.sh         # ~1-2 h CPU   larger permutation null
 ```
+
+Everything else in this job ran in the 2026-09-02 batch; see the "Already done" table in
+[README.md](README.md). Do not re-run those.
 
 `RUN_BLOCKSHUFFLE.sh` is the only line that trains anything, and it is last because it is the
 longest. It is also the one that closes the paper's first stated limitation. It was previously

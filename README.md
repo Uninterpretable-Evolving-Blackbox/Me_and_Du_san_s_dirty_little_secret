@@ -32,6 +32,11 @@ Both looked right. So do not hand-aggregate CSVs into a comparison; if the compa
 is not already in a `RESULT_SUMMARY.md` or in `verify_paper_claims.py`, say so rather than
 computing it ad hoc.
 
+**Only one section of this file is an instruction to you: "WHAT TO RUN, IN THIS ORDER".**
+Everything after the "Already done" table is either historical or first-time setup for a fresh
+machine. This box is already set up. Do not run anything from those sections — several of them
+train models for a day or more and their results are already in hand.
+
 Every run script is resumable and skips finished work, so interrupting and re-running is safe.
 An empty stage exits non-zero on purpose: it is a failure, not a green tick.
 
@@ -67,33 +72,56 @@ these changed.
 
 ## 👉 WHAT TO RUN, IN THIS ORDER
 
-**Current queue: see [START_HERE.md](START_HERE.md), job 6.** That is the authoritative list.
-Short version, cheapest first:
+**Four runs left.** Cheapest first, so a long one never blocks a short one. All are resumable
+and skip finished work. Full detail in [START_HERE.md](START_HERE.md), job 6.
 
 ```bash
 git pull
-ONLY=1 bash RUN_TIER1.sh                      # seconds
-ONLY=1 bash RUN_DEPTH_GRID.sh                 # 75 min
-ONLY=2 bash RUN_TIER1.sh                      # 45 min
-ONLY=2 bash RUN_DEPTH_GRID.sh                 # <1 h
-STAGE=11 bash RUN_MUSTRUNS.sh                 # ~1 h
-NSHUF_HI=100 ONLY=2 bash run_checks.sh
-FOLDDISJ_APPLY=1 ONLY=3 bash run_checks.sh
-ONLY=3 bash RUN_TIER1.sh                      # 12 h CPU
-ONLY=4 bash RUN_TIER1.sh                      # 6 h
-ONLY=5 bash RUN_TIER1.sh                      # <1 h
-bash RUN_BLOCKSHUFFLE.sh                      # ~6 h, the only line that trains
+
+ONLY=5 bash RUN_TIER1.sh                      # ~15 min-1 h  Benjamini-Hochberg across nine depths
+STAGE=11 bash RUN_MUSTRUNS.sh                 # ~1 h  CPU    pairwise contact probes, SAE and raw
+FOLDDISJ_APPLY=1 ONLY=3 bash run_checks.sh    # ~1-3 h GPU   fold-disjoint refit, native arm
+NSHUF_HI=25 ONLY=2 bash run_checks.sh         # ~1-2 h CPU   larger permutation null
 ```
 
-Then check the delivery before reading anything off it:
+About **4–7 hours in total.** Then check the batch before reading anything off it:
 
 ```bash
-python verify_paper_claims.py --results <unpacked batch>
+python verify_paper_claims.py --results <dir with the unpacked batch or its .tgz files>
 ```
 
-The two jobs below are **finished** and are kept for the record.
+**On the last line:** `NSHUF_HI=100` costs ~4–8 h against ~1–2 h at 25, because cost scales with
+the permutation count. §2.2's own sensitivity result already bounds the effect — 5 → 25 moves
+mean L_struct by +0.0073, never more than +0.0187, and changes no cell's sign — so 25 is very
+likely enough to retire the caveat. Use 100 only if there is time spare after the first three.
+
+**Two things worth more than any of the above, and neither needs the GPU:** send the native
+`outputs_ctrl_folddisj/*/*/struct_seq_metrics.csv`, and `git add` the twelve untracked scripts.
+Both are listed in the agent section at the top of this file.
+
+### Already done — do not re-run
+
+The 2026-09-02 batch (`presubmission_results_20260902.zip`) covered these, and
+`verify_paper_claims.py` reports 22 pass / 2 changed / 0 missing on it:
+
+| | run | result |
+|---|---|---|
+| `ONLY=1 bash RUN_TIER1.sh` | top1_share agreement | agrees on both cells; the check count stays at six |
+| `ONLY=1 bash RUN_DEPTH_GRID.sh` | corpus control at nine depths | 52/54 cells rise |
+| `ONLY=2 bash RUN_TIER1.sh` | fixed / rank denominator | 18/18 rise under all four denominators |
+| `ONLY=2 bash RUN_DEPTH_GRID.sh` | probes at block 18 | causal favoured in 3/9, not 27/27 — helix and burial reverse |
+| `ONLY=3 bash RUN_TIER1.sh` | d_struct at three seeds | causal 9/9, masked 0/9, at both gates |
+| `ONLY=4 bash RUN_TIER1.sh` | d_struct untrained baseline | passes at both gates and both arms |
+| `bash RUN_BLOCKSHUFFLE.sh` | second destruction procedure | 14/18 rise — causal 9/9, masked 5/9 |
 
 ---
+
+<details>
+<summary><b>Historical: the jobs above superseded these. Both are FINISHED — do not run them.</b></summary>
+
+> ⚠️ Everything inside this block is kept only for the record. The commands here train
+> models for 1–2 days and their results are already in hand. If you are deciding what to
+> run, the list is at the top of this file, not here.
 
 Two jobs, back to back. Everything else is on hold.
 
@@ -170,6 +198,9 @@ python -c "import torch;print(torch.__version__, torch.version.cuda, torch.cuda.
 ```
 
 ---
+
+
+</details>
 
 <details>
 <summary>Older experiments (already done — kept for reference)</summary>
