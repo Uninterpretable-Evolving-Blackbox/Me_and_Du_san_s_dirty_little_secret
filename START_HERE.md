@@ -51,7 +51,7 @@ or refits a dictionary.
 ```bash
 git pull
 
-ONLY=1 bash RUN_TIER1.sh                      # seconds — top1_share agreement, reads existing output
+ONLY=1 bash RUN_TIER1.sh                      # minutes — builds the selectivity CSV, then reads it
 ONLY=1 bash RUN_DEPTH_GRID.sh                 # 75 min  — corpus control at the other six depths
 ONLY=2 bash RUN_TIER1.sh                      # 45 min  — fixed and rank-based denominator
 ONLY=2 bash RUN_DEPTH_GRID.sh                 # <1 h    — probes at block 18
@@ -71,6 +71,13 @@ hours. `SEEDS=42 bash RUN_BLOCKSHUFFLE.sh` does it at one seed in about three. I
 if its paths would touch the real corpus or the real checkpoints.
 
 `bash RUN_TIER1.sh --plan` prints the plan and the cost without running anything.
+
+**If you hit the selectivity CSV bug:** fixed. No committed script had ever built the *native*
+`results_rigor/aa_selectivity.csv` — `RUN_MUSTRUNS.sh` stage 2 only builds the shuffled one, and
+`experiment_aa_selectivity.py` defaults to `--root outputs_outlier` with the ESM-2 / RITA pair,
+which is not the pair this paper reports. Stage 1 now builds it itself from `outputs_ctrl` with
+the right arms, and skips cells that have no `Z.npy`. `SEL_SEEDS="42 43 44"` widens it beyond
+seed 42 if you want more cells.
 
 **Two things to send back that need no compute:**
 

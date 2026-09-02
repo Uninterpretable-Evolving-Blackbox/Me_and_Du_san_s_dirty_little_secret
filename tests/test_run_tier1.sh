@@ -23,6 +23,16 @@ get(){ local k="$1"; shift; while [ $# -gt 0 ]; do [ "$1" = "$k" ] && { echo "$2
 case "$script" in
   analyze_top1_agreement.py)
     echo "VERDICT: AGREE on 2 cell(s)."; echo "  check count stays at six"; exit 0 ;;
+  experiment_aa_selectivity.py)
+    o="$(get --out "$@")"; c="$(get --cells "$@")"; r="$(get --root "$@")"
+    [ "$r" = "outputs_outlier" ] && { echo "stub: WRONG ROOT $r" >&2; exit 3; }
+    case "$c" in *esm2*|*rita*) echo "stub: WRONG CELLS $c" >&2; exit 3;; esac
+    mkdir -p "$(dirname "$o")"
+    printf 'cell,n_features,rho_selectivity_struct,p_struct,rho_top1_struct,p_top1,mean_selectivity
+' > "$o"
+    printf 'ckpt_mlm_s42_token:14,2560,-0.044,0.02,-0.061,0.03,0.31
+' >> "$o"
+    echo "  cells: $c"; exit 0 ;;
   rescore_denominator.py)
     d="$(get --layer-dir "$@")"
     [ "${STUB_FAIL_DENOM:-}" = "$d" ] && { echo "SELF-CHECK FAILED: max diff 3.1e-02" >&2; exit 1; }
@@ -46,7 +56,8 @@ chmod +x "$T/bin/python"
 mkfixture(){
   rm -rf "$T/w"; mkdir -p "$T/w"
   for f in RUN_TIER1.sh rescore_denominator.py analyze_top1_agreement.py \
-           cpu_stage.py experiment_interplm_metric.py eval_ctrl_plm.py; do
+           cpu_stage.py experiment_aa_selectivity.py experiment_interplm_metric.py \
+           eval_ctrl_plm.py; do
     cp "$REPO/$f" "$T/w/$f"
   done
   for root in outputs_ctrl outputs_ctrl_shuf; do
@@ -84,10 +95,23 @@ mkfixture; find "$T/w/outputs_ctrl" "$T/w/outputs_ctrl_shuf" -name Z.npy -delete
 run ONLY=2 > "$T/l" 2>&1; ck "preflight fails when no cell has Z.npy" "$?" "1"
 ckc "  and gives the rebuild command" "RUN_MUSTRUNS.sh" "$T/l"
 
-# 4. happy path, stage 1
+# 4. stage 1 builds the selectivity CSV itself, with the controlled pair
 mkfixture; run ONLY=1 > "$T/l" 2>&1
 ck "stage 1 exits 0" "$?" "0"
+ck "  builds the selectivity csv" "$(test -f "$T/w/results_rigor/aa_selectivity.csv" && echo y || echo n)" "y"
+ckc "  using the controlled arms, not esm2/rita" "ckpt_mlm_s42_token:11" "$T/l"
 ckc "  and surfaces the verdict" "VERDICT: AGREE" "$T/l"
+
+# 4b. an existing csv is not rebuilt
+run ONLY=1 > "$T/l4b" 2>&1
+ck "stage 1 reuses an existing csv" "$?" "0"
+ckc "  and says so" "already present" "$T/l4b"
+
+# 4c. no Z.npy anywhere -> named failure, not a silent pass
+mkfixture; find "$T/w/outputs_ctrl" -name Z.npy -delete
+run ONLY=1 > "$T/l4c" 2>&1
+ck "stage 1 fails when no cell can supply activations" "$?" "1"
+ckc "  and gives the rebuild command" "STAGE=1 bash RUN_MUSTRUNS.sh" "$T/l4c"
 
 # 5. stage 2 writes one denominator CSV per cell (2 roots x 1 seed x 2 arms x 3 depths = 12)
 mkfixture; run ONLY=2 > "$T/l" 2>&1

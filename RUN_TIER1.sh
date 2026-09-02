@@ -56,9 +56,12 @@ banner () { echo; echo "========================================================
 # --------------------------------------------------------------- plan / cost
 if [ "$PLAN" = 1 ]; then
   cat <<'PLANEOF'
-STAGE 1  top1_share agreement                 CPU     seconds
-         Reads results_rigor/aa_selectivity.csv. No compute. Says whether
-         Section 3's composition check survives its own robustness measure.
+STAGE 1  top1_share agreement                 CPU     minutes
+         Builds results_rigor/aa_selectivity.csv if it is absent, then says
+         whether Section 3's composition check survives its own robustness
+         measure. No committed script has ever produced the NATIVE selectivity
+         CSV — RUN_MUSTRUNS stage 2 only makes the shuffled one — so on a fresh
+         box this stage generates it. Seconds if the CSV is already there.
 
 STAGE 2  fixed / rank denominator rescoring    CPU     ~2.5x one cpu_stage pass
          18 headline cells. Recomputes L_struct with the SD denominator
@@ -86,7 +89,7 @@ echo "  seeds: $SEEDS | depths: $DEPTHS | n_shuffles: $NSHUF"
 banner "preflight"
 _bad=0
 for f in rescore_denominator.py analyze_top1_agreement.py cpu_stage.py \
-         experiment_interplm_metric.py eval_ctrl_plm.py; do
+         experiment_aa_selectivity.py experiment_interplm_metric.py eval_ctrl_plm.py; do
   [ -f "$f" ] || { echo "  !! missing $f"; _bad=1; }
 done
 
@@ -126,9 +129,51 @@ echo "  preflight OK"
 
 # =========================================================== STAGE 1  top1
 if want 1; then
-  banner "STAGE 1  top1_share agreement (CPU, seconds)"
+  banner "STAGE 1  top1_share agreement (CPU)"
+  mkdir -p results_rigor
+  SEL_CSV="${SEL_CSV:-results_rigor/aa_selectivity.csv}"
+
+  # experiment_aa_selectivity.py defaults to --root outputs_outlier and the
+  # ESM-2 / RITA pair, which is NOT the controlled pair this paper reports.
+  # Running it bare produces nothing usable, so build the cell list explicitly.
+  if [ ! -f "$SEL_CSV" ]; then
+    CELLS=""
+    for s_ in ${SEL_SEEDS:-42}; do
+      for arm in $(arms_for_seed "$s_"); do
+        for L in $DEPTHS; do
+          d="$OUT_NATIVE/$arm/layer_$L"
+          # needs BOTH: Z.npy for the activations, the metrics csv for struct_delta
+          if [ -f "$d/Z.npy" ] && [ -f "$d/struct_seq_metrics.csv" ]; then
+            CELLS="${CELLS:+$CELLS,}${arm}:${L}"
+          fi
+        done
+      done
+    done
+    if [ -z "$CELLS" ]; then
+      echo "  !! no cell under $OUT_NATIVE/ has both Z.npy and struct_seq_metrics.csv,"
+      echo "     so the selectivity CSV cannot be built. Rebuild Z with:"
+      echo "       STAGE=1 bash RUN_MUSTRUNS.sh    (~2 h)"
+      FAILED="$FAILED stage1-nocells"
+    else
+      echo "  building $SEL_CSV from: $CELLS"
+      glog="$LOGDIR/s1_selectivity_${STAMP}.log"
+      if $PY -u experiment_aa_selectivity.py --root "$OUT_NATIVE" \
+             --cells "$CELLS" --out "$SEL_CSV" > "$glog" 2>&1; then
+        grep -E "rho|cell|skip" "$glog" | tail -6 | sed 's/^/    /'
+      else
+        echo "  !! selectivity build FAILED (see $glog)"
+        tail -8 "$glog" | sed 's/^/     /'
+        FAILED="$FAILED stage1-selectivity"
+      fi
+    fi
+  else
+    echo "  [done] $SEL_CSV already present"
+  fi
+
   log="$LOGDIR/s1_top1_${STAMP}.log"
-  if $PY -u analyze_top1_agreement.py > "$log" 2>&1; then
+  if [ -f "$SEL_CSV" ] && $PY -u analyze_top1_agreement.py \
+        --summary "$SEL_CSV" \
+        --per-feature "${SEL_CSV%.csv}_per_feature.csv" > "$log" 2>&1; then
     grep -E "VERDICT|rho_|check count|Section 3" "$log" | sed 's/^/  /'
     RAN=$((RAN+1))
   else
