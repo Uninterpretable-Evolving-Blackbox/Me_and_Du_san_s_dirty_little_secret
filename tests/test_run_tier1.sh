@@ -23,6 +23,15 @@ get(){ local k="$1"; shift; while [ $# -gt 0 ]; do [ "$1" = "$k" ] && { echo "$2
 case "$script" in
   analyze_top1_agreement.py)
     echo "VERDICT: AGREE on 2 cell(s)."; echo "  check count stays at six"; exit 0 ;;
+  compute_h1_bootstrap.py)
+    mkdir -p outputs_robustness
+    printf 'cluster_level,rel_depth,d_point,ci_low,ci_high,frac_pos\nfold,50,0.25,0.19,0.31,0.99\n' \
+      > outputs_robustness/bootstrap_h1_ctrl_esmc_full_bylevel_minact0.csv
+    echo "bootstrap done"; exit 0 ;;
+  analyze_rigor.py)
+    st="$(get --bootstrap-stem "$@")"
+    [ "$st" = "bootstrap_h1" ] && { echo "stub: WRONG STEM (esm2/rita default)" >&2; exit 3; }
+    echo "  survive BH-FDR: 7/9"; exit 0 ;;
   experiment_aa_selectivity.py)
     o="$(get --out "$@")"; c="$(get --cells "$@")"; r="$(get --root "$@")"
     [ "$r" = "outputs_outlier" ] && { echo "stub: WRONG ROOT $r" >&2; exit 3; }
@@ -57,7 +66,7 @@ mkfixture(){
   rm -rf "$T/w"; mkdir -p "$T/w"
   for f in RUN_TIER1.sh rescore_denominator.py analyze_top1_agreement.py \
            cpu_stage.py experiment_aa_selectivity.py experiment_interplm_metric.py \
-           eval_ctrl_plm.py; do
+           eval_ctrl_plm.py analyze_rigor.py; do
     cp "$REPO/$f" "$T/w/$f"
   done
   for root in outputs_ctrl outputs_ctrl_shuf; do
@@ -161,6 +170,14 @@ ck "summary has one row per cell" "$(grep -c '^| outputs_ctrl' "$S")" "12"
 ckc "summary carries a real computed mean" "+0.01900" "$S"
 ckc "summary records the git revision" "Commit:" "$S"
 ck "checksums written" "$(test -s "$T/w/tier1_results_$(date +%Y%m%d)/SHA256SUMS.txt" && echo yes || echo no)" "yes"
+
+# 11b. stage 5: BH correction on the controlled pair, not the ESM-2/RITA default
+mkfixture; run ONLY=5 > "$T/l5" 2>&1
+ck "stage 5 exits 0" "$?" "0"
+ckc "  builds the bootstrap with the ctrl preset" "preset ctrl_esmc" "$T/l5"
+ckc "  and reports the BH count" "survive BH-FDR: 7/9" "$T/l5"
+run ONLY=5 > "$T/l5b" 2>&1
+ckc "  reuses an existing bootstrap csv" "already present" "$T/l5b"
 
 # 12. delegated commands are printed, not silently dropped
 ckc "delegated 100-perm command shown" "NSHUF_HI=100" "$T/l"

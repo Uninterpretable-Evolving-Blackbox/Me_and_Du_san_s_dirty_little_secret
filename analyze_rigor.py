@@ -242,6 +242,13 @@ def main():
     ap.add_argument("--outlier-root", default="outputs_outlier")
     ap.add_argument("--crosscoder-root", default="outputs_crosscoder")
     ap.add_argument("--level", default="fold", choices=["fold", "protein"])
+    ap.add_argument("--bootstrap-stem", default="bootstrap_h1",
+                    help="stem of the compute_h1_bootstrap.py outputs to read for R9. "
+                         "The default is the ESM-2 / RITA pair; the controlled pair this "
+                         "paper reports is written under --preset ctrl_esmc, whose stem is "
+                         "bootstrap_h1_ctrl_esmc. Passing the wrong stem makes R9 skip "
+                         "rather than fail, which is how it went unnoticed.")
+    ap.add_argument("--bootstrap-dir", default="outputs_robustness")
     args = ap.parse_args()
 
     if args.only in ("all", "a6", "a7"):
@@ -254,7 +261,10 @@ def main():
             df.to_csv("results_rigor/variant_comparison.csv", index=False)
         print()
     if args.only in ("all", "r9"):
-        multiplicity(level=args.level)
+        stem, bdir = args.bootstrap_stem, args.bootstrap_dir
+        multiplicity(csv=f"{bdir}/{stem}_full_bylevel_minact0.csv",
+                     traces=f"{bdir}/{stem}_traces_bylevel_minact0.npz",
+                     level=args.level)
         print()
     if args.only in ("all", "e5"):
         df = crosscoder_partials(args.crosscoder_root)

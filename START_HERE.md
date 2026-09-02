@@ -60,6 +60,7 @@ NSHUF_HI=100 ONLY=2 bash run_checks.sh        # 100-permutation null
 FOLDDISJ_APPLY=1 ONLY=3 bash run_checks.sh    # fold-disjoint refit, native arm
 ONLY=3 bash RUN_TIER1.sh                      # 12 h CPU — d_struct at three model seeds
 ONLY=4 bash RUN_TIER1.sh                      # 6 h     — d_struct untrained baseline
+ONLY=5 bash RUN_TIER1.sh                      # <1 h    — Benjamini-Hochberg across nine depths
 bash RUN_BLOCKSHUFFLE.sh                      # ~6 h    — second destruction procedure
 ```
 

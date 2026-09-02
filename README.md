@@ -38,6 +38,7 @@ NSHUF_HI=100 ONLY=2 bash run_checks.sh
 FOLDDISJ_APPLY=1 ONLY=3 bash run_checks.sh
 ONLY=3 bash RUN_TIER1.sh                      # 12 h CPU
 ONLY=4 bash RUN_TIER1.sh                      # 6 h
+ONLY=5 bash RUN_TIER1.sh                      # <1 h
 bash RUN_BLOCKSHUFFLE.sh                      # ~6 h, the only line that trains
 ```
 

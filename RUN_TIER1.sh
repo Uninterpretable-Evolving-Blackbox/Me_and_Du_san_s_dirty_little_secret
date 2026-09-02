@@ -76,6 +76,12 @@ STAGE 3  d_struct at three model seeds         CPU     ~10 min/cell
 STAGE 4  d_struct untrained baseline           GPU+CPU ~10 min/cell + embed
          3 init seeds x 2 arms x 3 depths = 18 cells. The only "not run"
          cell in Table 4.
+
+STAGE 5  Benjamini-Hochberg across nine depths  CPU     minutes to an hour
+         Section 3's "seven of nine depths survive BH correction". No
+         committed driver ever produced this for the controlled pair:
+         analyze_rigor.py has no driver, and its R9 input defaulted to the
+         ESM-2 / RITA stem, so it skipped rather than failed.
 PLANEOF
   echo
   echo "Set ONLY=<n> to run one stage. SEEDS/DEPTHS/GATES/DENOMS override the grid."
@@ -89,7 +95,8 @@ echo "  seeds: $SEEDS | depths: $DEPTHS | n_shuffles: $NSHUF"
 banner "preflight"
 _bad=0
 for f in rescore_denominator.py analyze_top1_agreement.py cpu_stage.py \
-         experiment_aa_selectivity.py experiment_interplm_metric.py eval_ctrl_plm.py; do
+         experiment_aa_selectivity.py experiment_interplm_metric.py eval_ctrl_plm.py \
+         analyze_rigor.py; do
   [ -f "$f" ] || { echo "  !! missing $f"; _bad=1; }
 done
 
@@ -298,6 +305,38 @@ if want 4; then
     FAILED="$FAILED stage4-empty"
   else
     echo "  [STAGE 4] $n cell(s)"; RAN=$((RAN+1))
+  fi
+fi
+
+# =========================================================== STAGE 5  BH / multiplicity
+if want 5; then
+  banner "STAGE 5  Benjamini-Hochberg across the nine depths (CPU)"
+  BOOT_STEM="${BOOT_STEM:-bootstrap_h1_ctrl_esmc}"
+  BOOT_CSV="outputs_robustness/${BOOT_STEM}_full_bylevel_minact0.csv"
+  if [ ! -f "$BOOT_CSV" ]; then
+    echo "  no $BOOT_CSV — building it (preset ctrl_esmc, not the ESM-2/RITA default)"
+    blog="$LOGDIR/s5_bootstrap_${STAMP}.log"
+    if $PY -u outputs_robustness/compute_h1_bootstrap.py --preset ctrl_esmc > "$blog" 2>&1; then
+      tail -3 "$blog" | sed 's/^/    /'
+    else
+      echo "  !! bootstrap FAILED (see $blog)"; tail -8 "$blog" | sed 's/^/     /'
+      FAILED="$FAILED stage5-bootstrap"
+    fi
+  else
+    echo "  [done] $BOOT_CSV already present"
+  fi
+  if [ -f "$BOOT_CSV" ]; then
+    log="$LOGDIR/s5_bh_${STAMP}.log"
+    if $PY -u analyze_rigor.py --only r9 --bootstrap-stem "$BOOT_STEM" > "$log" 2>&1; then
+      grep -E "survive BH-FDR|OMNIBUS|R9 " "$log" | sed 's/^/  /'
+      RAN=$((RAN+1))
+    else
+      echo "  !! FAILED (see $log)"; tail -6 "$log" | sed 's/^/     /'
+      FAILED="$FAILED stage5-bh"
+    fi
+  else
+    echo "  NO BH result produced. Not a silent skip."
+    FAILED="$FAILED stage5-empty"
   fi
 fi
 
