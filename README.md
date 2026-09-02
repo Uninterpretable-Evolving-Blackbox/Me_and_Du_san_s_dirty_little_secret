@@ -5,6 +5,49 @@
 
 ## 👉 START HERE
 
+## 🤖 If you are an agent reading this on Ronnie's box
+
+Do these two things. Both are read-only, need no GPU, and take under a minute.
+
+```bash
+bash tests/run_all.sh                      # 126 checks, no GPU, no checkpoints needed
+```
+
+Run it before anything else. It confirms the checkout is sound. If it fails, stop and report
+the failing suite — do not repair it and continue.
+
+```bash
+python verify_paper_claims.py --results <dir with the unpacked batch or its .tgz files>
+```
+
+Run it after any batch finishes, **before** reporting a number off it. It recomputes every
+figure in the paper the batch covers and prints the paper's value beside the computed one.
+Exit 0 means everything matched; exit 1 means at least one claim CHANGED and the report names
+which; MISSING means the batch does not cover that claim, which is not a failure.
+
+**The failure mode on this project is plausible numbers, not crashes.** Two aggregation
+mistakes have already shipped here — a pivot that paired shuffled seed 42 against real seeds
+43/44, and a concept-F1 figure that was a max over depths compared against a per-depth mean.
+Both looked right. So do not hand-aggregate CSVs into a comparison; if the comparison you want
+is not already in a `RESULT_SUMMARY.md` or in `verify_paper_claims.py`, say so rather than
+computing it ad hoc.
+
+Every run script is resumable and skips finished work, so interrupting and re-running is safe.
+An empty stage exits non-zero on purpose: it is a failure, not a green tick.
+
+Two things worth more than any compute here, and neither needs the GPU:
+
+1. Send `outputs_ctrl_folddisj/*/*/struct_seq_metrics.csv` — the **native** fold-disjoint
+   cells. They already exist on this box. Without them the fold-disjoint shuffled numbers
+   have nothing to be divided by.
+2. `git add` the untracked scripts and push. Five of them produced numbers that are in the
+   paper and exist in one copy: `experiment_interplm_metric_dsgate.py`, `patch_dsgate.py`,
+   `patch_raw_coact*.py`, `run_queue_0804.sh`, `run_500tpp.sh`. Also `label_features.py`,
+   `run_ppl500.sh`, `run_shuf500_eval.sh`, `unwrap_sae.py`, `merge_stage5.py`,
+   `extract_esm2.py`, `interplm_sae_encode.py`.
+
+---
+
 ## ⚠️ FIRST: `git pull` before you run ANYTHING
 
 ```bash

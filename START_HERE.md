@@ -1,5 +1,12 @@
 # Start here
 
+## If you are an agent
+
+`bash tests/run_all.sh` first — 126 checks, read-only, no GPU, under a minute. Then
+`python verify_paper_claims.py --results <unpacked batch>` after any batch, before reporting a
+number off it. See the agent section at the top of [README.md](README.md) for what the verdicts
+mean and for the two zero-compute items worth more than any run here.
+
 ## Run the preflight first
 
 ```bash
@@ -72,6 +79,23 @@ hours. `SEEDS=42 bash RUN_BLOCKSHUFFLE.sh` does it at one seed in about three. I
 if its paths would touch the real corpus or the real checkpoints.
 
 `bash RUN_TIER1.sh --plan` prints the plan and the cost without running anything.
+
+### What is left after the 2026-09-02 batch, and what it costs
+
+| | run | cost | basis |
+|---|---|---|---|
+| 1 | `ONLY=5 bash RUN_TIER1.sh` | ~15 min – 1 h | estimate; 1,000 bootstrap resamples then BH |
+| 2 | `STAGE=11 bash RUN_MUSTRUNS.sh` | ~1 h, CPU | measured, `RUN_MUSTRUNS.sh:499` |
+| 3 | `FOLDDISJ_APPLY=1 ONLY=3 bash run_checks.sh` | ~1–3 h, GPU | measured, `RUN_CHECKS.md` stage 3 |
+| 4 | `NSHUF_HI=100 ONLY=2 bash run_checks.sh` | **~4–8 h**, CPU | scaled from the measured 1–2 h at 25 |
+
+**About 6–13 h in total, and item 4 is most of it.** Cost scales with the permutation count, so
+100 costs four times what 25 does. Consider whether it is worth that: §2.2's own sensitivity
+result already shows 5 → 25 moves mean L_struct by +0.0073, never more than +0.0187, and changes
+no cell's sign. `NSHUF_HI=25 ONLY=2 bash run_checks.sh` costs 1–2 h and is very likely enough to
+retire the caveat. Run items 1–3 first regardless; they are cheap and each closes something.
+
+Run them in that order — cheapest first, so a long one never blocks a short one.
 
 ### Checking a delivery
 
