@@ -29,3 +29,6 @@ paper/*.log
 paper/*.out
 paper/*.bbl
 paper/*.blg
+
+# figure PNGs are previews; the PDFs are what LaTeX uses
+paper/figures/*.png
