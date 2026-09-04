@@ -40,6 +40,10 @@ train models for a day or more and their results are already in hand.
 Every run script is resumable and skips finished work, so interrupting and re-running is safe.
 An empty stage exits non-zero on purpose: it is a failure, not a green tick.
 
+Writing the appendices? [APPENDIX_SOURCES.md](APPENDIX_SOURCES.md) maps each of the twelve cited
+appendices to the file its numbers come from, says which are in hand and which are still missing,
+and lists the nine claims the delivered data has moved since the current PDF was built.
+
 Two things worth more than any compute here, and neither needs the GPU:
 
 1. Send `outputs_ctrl_folddisj/*/*/struct_seq_metrics.csv` — the **native** fold-disjoint
