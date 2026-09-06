@@ -1,0 +1,143 @@
+bash: warning: setlocale: LC_ALL: cannot change locale (en_US.UTF-8): No such file or directory
+bash: warning: setlocale: LC_ALL: cannot change locale (en_US.UTF-8): No such file or directory
+   interpreter: /home/ronnie/Me_and_Du_san_s_dirty_little_secret/.venv/bin/python  (PYTHONUNBUFFERED=1)
+
+[1m== STAGE 13 — continuous separation sweep[0m
+   [32mOK[0m  outputs_ctrl cached
+   [32mOK[0m  outputs_ctrl_shuf cached
+   plot d against gap. the interesting region is 2-6, where the sign flips.
+
+[1m== summary[0m
+
+   Now run:  /home/ronnie/Me_and_Du_san_s_dirty_little_secret/.venv/bin/python summarize_reviewer_batch.py
+   It computes every comparison these stages exist to make. Send me its
+   output as well as the results directories.
+   [32mOK[0m  all attempted stages completed
+bash: warning: setlocale: LC_ALL: cannot change locale (en_US.UTF-8): No such file or directory
+########## repo revision: 643c48a | Mon Sep  7 00:50:04 CST 2026 ##########
+########## MECHANISM: upstream vs downstream contacts ##########
+  A causal model cannot see j>i. If bidirectionality is the mechanism, the MLM
+  advantage must be LARGER on downstream contacts. The sequential graph is split
+  the same way as a within-run control for a generic forward-looking advantage.
+
+  [done] ckpt_mlm_s42_token L11
+  [done] ckpt_mlm_s42_token L14
+  [done] ckpt_mlm_s42_token L18
+  [done] ckpt_clm_s42 L11
+  [done] ckpt_clm_s42 L14
+  [done] ckpt_clm_s42 L18
+  [done] ckpt_mlm_s43_token L11
+  [done] ckpt_mlm_s43_token L14
+  [done] ckpt_mlm_s43_token L18
+  [done] ckpt_clm_s43 L11
+  [done] ckpt_clm_s43 L14
+  [done] ckpt_clm_s43 L18
+  [done] ckpt_mlm_s44_token L11
+  [done] ckpt_mlm_s44_token L14
+  [done] ckpt_mlm_s44_token L18
+  [done] ckpt_clm_s44 L11
+  [done] ckpt_clm_s44 L14
+  [done] ckpt_clm_s44 L18
+
+########## MECHANISM ANALYSIS ##########
+====================================================================================================
+MECHANISM TEST — d(MLM, CLM) split by contact direction.  Prediction: down > up
+====================================================================================================
+rel_depth  struct_up  struct_down  struct_interaction  seq_up  seq_down  seq_interaction  net_interaction
+      38%    +0.4420      +0.3111             -0.1309 -2.0945   -2.2290          -0.1345          +0.0036
+      38%    +0.5021      +0.3556             -0.1465 -2.3235   -2.3652          -0.0417          -0.1048
+      38%    +0.5359      +0.3930             -0.1428 -2.5383   -2.4894          +0.0490          -0.1918
+      50%    +0.4770      +0.3546             -0.1224 -0.5544   -0.4643          +0.0900          -0.2125
+      50%    +0.4484      +0.2771             -0.1713 -2.1078   -2.0847          +0.0231          -0.1944
+      50%    +0.5495      +0.4244             -0.1251 -1.5533   -1.4718          +0.0814          -0.2065
+      63%    +0.3165      +0.1757             -0.1408 -0.0926   +0.0130          +0.1056          -0.2464
+      63%    +0.3755      +0.2119             -0.1636 -0.7399   -0.6644          +0.0755          -0.2391
+      63%    +0.3925      +0.2564             -0.1361 -0.1329   -0.0491          +0.0838          -0.2198
+
+----------------------------------------------------------------------------------------------------
+  STRUCTURAL interaction (down - up)     mean -0.1422   positive at 0/9 cells   | across seeds: t=-15.46, p=0.004 (df=2)
+  sequential interaction  (control)      mean +0.0369   positive at 7/9 cells   | across seeds: t=+2.14, p=0.166 (df=2)
+  NET  (structural - sequential)         mean -0.1791   positive at 1/9 cells   | across seeds: t=-11.42, p=0.008 (df=2)
+
+  READING THIS:
+    Mixed or negative. Do not force an interpretation; report the table and say
+    the mechanism test was inconclusive at this depth set.
+
+  wrote -> results_rigor/directional_mechanism.csv
+  CAVEAT: never report struct_up vs struct_down within a single arm as a structural
+          fact — the two are on different scales by degree. Only the interaction is
+          interpretable (see cpu_stage.py's directional-split header).
+
+########## STAGE 1 DONE Mon Sep  7 00:50:05 CST 2026 ##########
+bash: warning: setlocale: LC_ALL: cannot change locale (en_US.UTF-8): No such file or directory
+   interpreter: /home/ronnie/Me_and_Du_san_s_dirty_little_secret/.venv/bin/python  (PYTHONUNBUFFERED=1)
+
+[1m== STAGE 10 — raw-dimension L_struct + perplexity[0m
+   [32mOK[0m  real_ckpt_mlm_s42_token.csv cached
+   [32mOK[0m  real_ckpt_clm_s42.csv cached
+   [32mOK[0m  shuf_ckpt_mlm_s42_token.csv cached
+   [32mOK[0m  shuf_ckpt_clm_s42.csv cached
+   compare mean_struct_delta between real_* and shuf_*, per arm and layer.
+
+[1m== summary[0m
+
+   Now run:  /home/ronnie/Me_and_Du_san_s_dirty_little_secret/.venv/bin/python summarize_reviewer_batch.py
+   It computes every comparison these stages exist to make. Send me its
+   output as well as the results directories.
+   [32mOK[0m  all attempted stages completed
+bash: warning: setlocale: LC_ALL: cannot change locale (en_US.UTF-8): No such file or directory
+   interpreter: /home/ronnie/Me_and_Du_san_s_dirty_little_secret/.venv/bin/python  (PYTHONUNBUFFERED=1)
+
+[1m== STAGE 11 — pairwise structural-proximity probes (SAE vs raw)[0m
+   POSITIVE CONTROL should land near 0.61. If it is ~0.50 the probe is at
+   fault and every other number from stage 11 is uninterpretable.
+
+[1m== summary[0m
+
+   Now run:  /home/ronnie/Me_and_Du_san_s_dirty_little_secret/.venv/bin/python summarize_reviewer_batch.py
+   It computes every comparison these stages exist to make. Send me its
+   output as well as the results directories.
+   [32mOK[0m  all attempted stages completed
+bash: warning: setlocale: LC_ALL: cannot change locale (en_US.UTF-8): No such file or directory
+########## repo revision: 643c48a | started Mon Sep  7 00:50:05 CST 2026 ##########
+preflight: 18 / 18 headline cells have Z.npy in outputs_ctrl/
+
+  [skip stage 1] grid audit — completeness and arm comparability
+
+===== CHECK 2: permutation null at 25 on the 18 headline cells — started Mon Sep  7 00:50:05 CST 2026 -> logs_checks/check2_20260907_005005.log =====
+===== CHECK 2 OK Mon Sep  7 00:50:05 CST 2026 =====
+      ckpt_clm_s42 L11              0.00172    0.00162    0.00010
+      ckpt_clm_s42 L14              0.00114    0.00113    0.00001
+      ckpt_clm_s42 L18              0.00462    0.00456    0.00007
+      ckpt_mlm_s43_token L11        0.01844    0.01843    0.00001
+      ckpt_mlm_s43_token L14        0.01612    0.01612    0.00000
+      ckpt_mlm_s43_token L18        0.01497    0.01496    0.00002
+      ckpt_clm_s43 L11              0.00189    0.00184    0.00005
+      ckpt_clm_s43 L14              0.00240    0.00226    0.00014
+      ckpt_clm_s43 L18              0.00481    0.00472    0.00010
+      ckpt_mlm_s44_token L11        0.02017    0.02040    0.00023
+      ckpt_mlm_s44_token L14        0.01790    0.01800    0.00010
+      ckpt_mlm_s44_token L18        0.01387    0.01384    0.00003
+      ckpt_clm_s44 L11              0.00124    0.00120    0.00004
+      ckpt_clm_s44 L14              0.00079    0.00071    0.00008
+      ckpt_clm_s44 L18              0.00297    0.00295    0.00002
+    
+      max |diff| = 0.00023   median |diff| = 0.00007  over 18 cells
+      Read it as: a small max means the 5-permutation null was already large enough
+      and the published numbers stand. A large one means the null has to grow and
+      every L_struct number moves with it.
+  [skip stage 3] fold-disjoint SAE/probe split (report; re-fit only with FOLDDISJ_APPLY=1)
+  [skip stage 4] trivial baseline — concept scores against their prevalence floor
+  [skip stage 5] global level — remote-homology probe between domains
+
+########## finished Mon Sep  7 00:50:05 CST 2026 ##########
+All stages OK.
+
+Send back:
+  logs_checks/                     (carries the git revision of the code that ran)
+  results_nshuffle_headline/                  (stage 2)
+  eval_set_folddisj/META.json  (stage 3)
+  results_trivial_baseline/    (stage 4)
+  results_global_probe/        (stage 5)
+  outputs_ctrl_folddisj/*/*/struct_seq_metrics.csv   (stage 3, only with FOLDDISJ_APPLY=1)
+  and $BASE/results/sae_quality.txt ALONGSIDE concept_f1.txt — never the F1 alone.

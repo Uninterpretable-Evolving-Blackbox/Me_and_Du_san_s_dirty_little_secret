@@ -1,0 +1,355 @@
+
+=== STAGE 7 — dictionary seed vs model seed ===
+               arm  layer  n_dict_seeds    mean  sd_across_dict_seeds
+ckpt_mlm_s42_token     11             3 0.01857               0.00110
+ckpt_mlm_s42_token     14             3 0.01651               0.00049
+ckpt_mlm_s42_token     18             3 0.01398               0.00068
+      ckpt_clm_s42     11             3 0.00149               0.00020
+      ckpt_clm_s42     14             3 0.00105               0.00008
+      ckpt_clm_s42     18             3 0.00442               0.00020
+
+  median SD across DICTIONARY seeds : 0.00034
+  SD across MODEL seeds (paper S3)  : 0.02340
+  If the first is comparable to or larger than the second, S3's seed-level
+  intervals are understated and the omnibus p = 0.0028 is optimistic.
+
+=== STAGE 9 — permutation count, 5 vs 25 ===
+ layer  cutoff_A  seq_gap   d_n5  d_n25  abs_change  pct_shift
+    11       6.0        6 0.2600 0.2694      0.0093     3.5870
+    11       6.0       12 0.3425 0.3558      0.0132     3.8665
+    11       6.0       24 0.3577 0.3756      0.0179     5.0005
+    11       8.0        6 0.2681 0.2757      0.0076     2.8276
+    11       8.0       12 0.4036 0.4222      0.0187     4.6215
+    11       8.0       24 0.4544 0.4663      0.0119     2.6247
+    11      10.0        6 0.1003 0.1012      0.0010     0.9737
+    11      10.0       12 0.5365 0.5541      0.0176     3.2871
+    11      10.0       24 0.6103 0.6178      0.0075     1.2279
+    14       6.0        6 0.4034 0.4158      0.0125     3.0904
+    14       6.0       12 0.3767 0.3847      0.0080     2.1202
+    14       6.0       24 0.2725 0.2828      0.0102     3.7538
+    14       8.0        6 0.4382 0.4455      0.0073     1.6690
+    14       8.0       12 0.4299 0.4397      0.0098     2.2765
+    14       8.0       24 0.3297 0.3357      0.0060     1.8152
+    14      10.0        6 0.5027 0.5036      0.0009     0.1722
+    14      10.0       12 0.5410 0.5422      0.0013     0.2318
+    14      10.0       24 0.3711 0.3698      0.0013     0.3489
+    18       6.0        6 0.2871 0.3024      0.0152     5.3010
+    18       6.0       12 0.2741 0.2822      0.0081     2.9598
+    18       6.0       24 0.2622 0.2768      0.0146     5.5566
+    18       8.0        6 0.3080 0.3094      0.0014     0.4581
+    18       8.0       12 0.2906 0.2919      0.0013     0.4499
+    18       8.0       24 0.2712 0.2748      0.0035     1.3079
+    18      10.0        6 0.3254 0.3256      0.0002     0.0743
+    18      10.0       12 0.2780 0.2750      0.0031     1.1047
+    18      10.0       24 0.2522 0.2484      0.0038     1.5129
+
+  median |change| 0.0076  (2.1% of the effect)   max 0.0187   sign changes 0/27
+  A material move means five draws do not estimate the null tightly enough.
+
+=== STAGE 10 — raw dimensions (no SAE) + perplexity ===
+tree             real  shuffled  shuf_minus_real    ratio
+arm    layer                                             
+causal 11     0.00596   0.02486          0.01890  4.16991
+       14     0.00484   0.03426          0.02942  7.07917
+       18     0.01030   0.03763          0.02733  3.65420
+masked 11     0.01434   0.01367         -0.00067  0.95336
+       14     0.01047   0.01277          0.00230  1.21964
+       18     0.01246   0.01236         -0.00010  0.99170
+
+  THE QUESTION: is shuffled still above real with NO dictionary in the path?
+  yes -> no instrumental account of S4.3 can hold, the effect is in the model
+  no  -> the autoencoder is the story and S4.3 resolves to one cause
+
+  perplexity (causal and pseudo-masked are DIFFERENT quantities, never compare):
+                       file  perplexity      ppl_kind
+      shuf_ckpt_clm_s42.csv      18.174        causal
+shuf_ckpt_mlm_s42_token.csv      17.421 pseudo_masked
+      real_ckpt_clm_s42.csv      16.430        causal
+real_ckpt_mlm_s42_token.csv      15.678 pseudo_masked
+
+=== STAGE 11 — pairwise contact probes ===
+                         cell mode  auroc  shuffled_label_control
+POSITIVE_CONTROL_esm2_L16_raw  raw 0.6443                  0.4884
+         ckpt_clm_s42_L11_raw  raw 0.6148                  0.4996
+         ckpt_clm_s42_L11_sae  sae 0.5828                  0.5024
+         ckpt_clm_s42_L14_raw  raw 0.6039                  0.4968
+         ckpt_clm_s42_L14_sae  sae 0.5733                  0.4998
+         ckpt_clm_s42_L18_raw  raw 0.6106                  0.4959
+         ckpt_clm_s42_L18_sae  sae 0.5811                  0.4901
+   ckpt_mlm_s42_token_L11_raw  raw 0.5928                  0.5097
+   ckpt_mlm_s42_token_L11_sae  sae 0.5584                  0.5024
+   ckpt_mlm_s42_token_L14_raw  raw 0.5976                  0.5027
+   ckpt_mlm_s42_token_L14_sae  sae 0.5563                  0.5048
+   ckpt_mlm_s42_token_L18_raw  raw 0.6313                  0.5063
+   ckpt_mlm_s42_token_L18_sae  sae 0.5958                  0.5010
+
+  positive control (ESM-2 raw): 0.6443   -> PROBE HAS POWER — nulls elsewhere are meaningful
+
+=== STAGE 14 — Simon & Zou's metric, exactly as published ===
+                                                cell     tree    arm  n_scored  mean_d_struct  n_significant  median_ratio
+                       outputs_ctrl_ckpt_clm_s42_L11     real causal      2560         0.4377            953        0.8923
+           outputs_ctrl_ckpt_clm_s42_L11_gate-global     real causal      2489         0.5326           1553        0.8810
+              outputs_ctrl_ckpt_clm_s42_L11_gate-raw     real causal      2560         0.4519           1063        0.8929
+                       outputs_ctrl_ckpt_clm_s42_L14     real causal      2560         0.4602           1047        0.8957
+           outputs_ctrl_ckpt_clm_s42_L14_gate-global     real causal      1947         0.5800           1268        0.8787
+              outputs_ctrl_ckpt_clm_s42_L14_gate-raw     real causal      2560         0.4742           1164        0.9016
+                       outputs_ctrl_ckpt_clm_s42_L18     real causal      2560         0.4473            957        0.9064
+           outputs_ctrl_ckpt_clm_s42_L18_gate-global     real causal      1621         0.5800            870        0.8595
+              outputs_ctrl_ckpt_clm_s42_L18_gate-raw     real causal      2560         0.4501            993        0.9031
+           outputs_ctrl_ckpt_clm_s43_L11_gate-global     real causal      2499         0.5403           1649        0.8924
+              outputs_ctrl_ckpt_clm_s43_L11_gate-raw     real causal      2560         0.4431           1171        0.9022
+           outputs_ctrl_ckpt_clm_s43_L14_gate-global     real causal      2089         0.6244           1511        0.8852
+              outputs_ctrl_ckpt_clm_s43_L14_gate-raw     real causal      2560         0.4848           1442        0.9064
+           outputs_ctrl_ckpt_clm_s43_L18_gate-global     real causal      2037         0.6346           1401        0.8961
+              outputs_ctrl_ckpt_clm_s43_L18_gate-raw     real causal      2560         0.4542           1214        0.9158
+           outputs_ctrl_ckpt_clm_s44_L11_gate-global     real causal      2449         0.5521           1663        0.8895
+              outputs_ctrl_ckpt_clm_s44_L11_gate-raw     real causal      2560         0.4817           1560        0.9054
+           outputs_ctrl_ckpt_clm_s44_L14_gate-global     real causal      2257         0.6208           1703        0.8892
+              outputs_ctrl_ckpt_clm_s44_L14_gate-raw     real causal      2560         0.4926           1617        0.9024
+           outputs_ctrl_ckpt_clm_s44_L18_gate-global     real causal      2030         0.6113           1356        0.8749
+              outputs_ctrl_ckpt_clm_s44_L18_gate-raw     real causal      2560         0.4671           1368        0.8983
+                 outputs_ctrl_ckpt_mlm_s42_token_L11     real masked      2560        -0.0241             34        1.0546
+     outputs_ctrl_ckpt_mlm_s42_token_L11_gate-global     real masked      2414        -0.0283             55        1.1618
+        outputs_ctrl_ckpt_mlm_s42_token_L11_gate-raw     real masked      1744        -0.0506             40        1.2502
+                 outputs_ctrl_ckpt_mlm_s42_token_L14     real masked      2560         0.1337            208        0.9298
+     outputs_ctrl_ckpt_mlm_s42_token_L14_gate-global     real masked      2463         0.1492            328        0.9215
+        outputs_ctrl_ckpt_mlm_s42_token_L14_gate-raw     real masked      1760         0.0567            100        0.9558
+                 outputs_ctrl_ckpt_mlm_s42_token_L18     real masked      2560         0.3032            728        0.9135
+     outputs_ctrl_ckpt_mlm_s42_token_L18_gate-global     real masked      2513         0.4364           1219        0.8952
+        outputs_ctrl_ckpt_mlm_s42_token_L18_gate-raw     real masked      2486         0.4103           1102        0.8919
+     outputs_ctrl_ckpt_mlm_s43_token_L11_gate-global     real masked      2512        -0.0125             47        1.4511
+        outputs_ctrl_ckpt_mlm_s43_token_L11_gate-raw     real masked      1825        -0.0403             45        1.4192
+     outputs_ctrl_ckpt_mlm_s43_token_L14_gate-global     real masked      2512         0.0555            115        1.0258
+        outputs_ctrl_ckpt_mlm_s43_token_L14_gate-raw     real masked      1876         0.0093             79        1.0734
+     outputs_ctrl_ckpt_mlm_s43_token_L18_gate-global     real masked      2455         0.3038            830        0.9011
+        outputs_ctrl_ckpt_mlm_s43_token_L18_gate-raw     real masked      2413         0.2923            727        0.9036
+     outputs_ctrl_ckpt_mlm_s44_token_L11_gate-global     real masked      2394        -0.0422             34        1.0926
+        outputs_ctrl_ckpt_mlm_s44_token_L11_gate-raw     real masked      1817        -0.0540             42        1.1446
+     outputs_ctrl_ckpt_mlm_s44_token_L14_gate-global     real masked      2404         0.1203            142        0.9486
+        outputs_ctrl_ckpt_mlm_s44_token_L14_gate-raw     real masked      1907         0.0788             97        0.9924
+     outputs_ctrl_ckpt_mlm_s44_token_L18_gate-global     real masked      2410         0.4488           1155        0.8819
+        outputs_ctrl_ckpt_mlm_s44_token_L18_gate-raw     real masked      2453         0.4314           1102        0.8824
+                  outputs_ctrl_shuf_ckpt_clm_s42_L11 shuffled causal      2560         0.3951           1046        0.9166
+      outputs_ctrl_shuf_ckpt_clm_s42_L11_gate-global shuffled causal      2549         0.6086           1597        0.8937
+         outputs_ctrl_shuf_ckpt_clm_s42_L11_gate-raw shuffled causal      2238         0.5370           1214        0.8956
+                  outputs_ctrl_shuf_ckpt_clm_s42_L14 shuffled causal      2560         0.4742           1350        0.9153
+      outputs_ctrl_shuf_ckpt_clm_s42_L14_gate-global shuffled causal      2527         0.7475           1941        0.8915
+         outputs_ctrl_shuf_ckpt_clm_s42_L14_gate-raw shuffled causal      2190         0.6730           1545        0.8905
+                  outputs_ctrl_shuf_ckpt_clm_s42_L18 shuffled causal      2560         0.5324           1652        0.9126
+      outputs_ctrl_shuf_ckpt_clm_s42_L18_gate-global shuffled causal      2497         0.8713           2161        0.8786
+         outputs_ctrl_shuf_ckpt_clm_s42_L18_gate-raw shuffled causal      1627         0.8644           1316        0.8792
+      outputs_ctrl_shuf_ckpt_clm_s43_L11_gate-global shuffled causal      2549         0.6138           1616        0.8957
+         outputs_ctrl_shuf_ckpt_clm_s43_L11_gate-raw shuffled causal      2264         0.5505           1262        0.9005
+      outputs_ctrl_shuf_ckpt_clm_s43_L14_gate-global shuffled causal      2531         0.7157           1895        0.9010
+         outputs_ctrl_shuf_ckpt_clm_s43_L14_gate-raw shuffled causal      2121         0.6612           1444        0.8963
+      outputs_ctrl_shuf_ckpt_clm_s43_L18_gate-global shuffled causal      2505         0.8597           2156        0.8843
+         outputs_ctrl_shuf_ckpt_clm_s43_L18_gate-raw shuffled causal      1729         0.8464           1361        0.8797
+      outputs_ctrl_shuf_ckpt_clm_s44_L11_gate-global shuffled causal      2555         0.6187           1637        0.9011
+         outputs_ctrl_shuf_ckpt_clm_s44_L11_gate-raw shuffled causal      2242         0.5555           1277        0.9115
+      outputs_ctrl_shuf_ckpt_clm_s44_L14_gate-global shuffled causal      2528         0.7537           1967        0.8930
+         outputs_ctrl_shuf_ckpt_clm_s44_L14_gate-raw shuffled causal      2168         0.6873           1527        0.8960
+      outputs_ctrl_shuf_ckpt_clm_s44_L18_gate-global shuffled causal      2491         0.9012           2200        0.8814
+         outputs_ctrl_shuf_ckpt_clm_s44_L18_gate-raw shuffled causal      1685         0.8935           1367        0.8717
+            outputs_ctrl_shuf_ckpt_mlm_s42_token_L11 shuffled masked      2552        -0.0401             25        1.1704
+outputs_ctrl_shuf_ckpt_mlm_s42_token_L11_gate-global shuffled masked      2304        -0.0537             11        1.6219
+   outputs_ctrl_shuf_ckpt_mlm_s42_token_L11_gate-raw shuffled masked      1668        -0.0901             26        1.3333
+            outputs_ctrl_shuf_ckpt_mlm_s42_token_L14 shuffled masked      2556        -0.0438             23        1.2692
+outputs_ctrl_shuf_ckpt_mlm_s42_token_L14_gate-global shuffled masked      2296        -0.0549             21        1.2375
+   outputs_ctrl_shuf_ckpt_mlm_s42_token_L14_gate-raw shuffled masked      1621        -0.0986             33        1.3253
+            outputs_ctrl_shuf_ckpt_mlm_s42_token_L18 shuffled masked      2557        -0.0453             27        1.2263
+outputs_ctrl_shuf_ckpt_mlm_s42_token_L18_gate-global shuffled masked      2285        -0.0590             23        1.3170
+   outputs_ctrl_shuf_ckpt_mlm_s42_token_L18_gate-raw shuffled masked      1570        -0.1016             24        1.2230
+outputs_ctrl_shuf_ckpt_mlm_s43_token_L11_gate-global shuffled masked      2346        -0.0657             24        1.4251
+   outputs_ctrl_shuf_ckpt_mlm_s43_token_L11_gate-raw shuffled masked      1714        -0.0943             14        1.3330
+outputs_ctrl_shuf_ckpt_mlm_s43_token_L14_gate-global shuffled masked      2348        -0.0654             18        1.6506
+   outputs_ctrl_shuf_ckpt_mlm_s43_token_L14_gate-raw shuffled masked      1681        -0.0963             14        1.2303
+outputs_ctrl_shuf_ckpt_mlm_s43_token_L18_gate-global shuffled masked      2352        -0.0646             20        1.2840
+   outputs_ctrl_shuf_ckpt_mlm_s43_token_L18_gate-raw shuffled masked      1608        -0.0974             21        1.3673
+outputs_ctrl_shuf_ckpt_mlm_s44_token_L11_gate-global shuffled masked      2420        -0.0488             22        1.2262
+   outputs_ctrl_shuf_ckpt_mlm_s44_token_L11_gate-raw shuffled masked      1690        -0.0865             12        1.4096
+outputs_ctrl_shuf_ckpt_mlm_s44_token_L14_gate-global shuffled masked      2422        -0.0385             13        1.3769
+   outputs_ctrl_shuf_ckpt_mlm_s44_token_L14_gate-raw shuffled masked      1641        -0.0821             16        1.1556
+outputs_ctrl_shuf_ckpt_mlm_s44_token_L18_gate-global shuffled masked      2430        -0.0409             11        1.4374
+   outputs_ctrl_shuf_ckpt_mlm_s44_token_L18_gate-raw shuffled masked      1573        -0.0897             15        1.2182
+         randominit_s42_ckpt_clm_s42_L11_gate-global     real causal      2534         0.2327            567        0.8911
+            randominit_s42_ckpt_clm_s42_L11_gate-raw     real causal      2547         0.1791            458        0.9053
+         randominit_s42_ckpt_clm_s42_L14_gate-global     real causal      2525         0.2534            625        0.8935
+            randominit_s42_ckpt_clm_s42_L14_gate-raw     real causal      2547         0.2053            542        0.9097
+         randominit_s42_ckpt_clm_s42_L18_gate-global     real causal      2534         0.3055            774        0.8859
+            randominit_s42_ckpt_clm_s42_L18_gate-raw     real causal      2560         0.2214            434        0.9291
+   randominit_s42_ckpt_mlm_s42_token_L11_gate-global     real masked      2497        -0.0421             15        1.5297
+      randominit_s42_ckpt_mlm_s42_token_L11_gate-raw     real masked      1654        -0.0966             17        1.3356
+   randominit_s42_ckpt_mlm_s42_token_L14_gate-global     real masked      2505        -0.0293              9        1.2006
+      randominit_s42_ckpt_mlm_s42_token_L14_gate-raw     real masked      1686        -0.0883             14        1.2871
+   randominit_s42_ckpt_mlm_s42_token_L18_gate-global     real masked      2476        -0.0234              8        1.2309
+      randominit_s42_ckpt_mlm_s42_token_L18_gate-raw     real masked      1957        -0.0544             16        1.2349
+         randominit_s43_ckpt_clm_s42_L11_gate-global     real causal      2526         0.2218            540        0.8881
+            randominit_s43_ckpt_clm_s42_L11_gate-raw     real causal      2556         0.1666            386        0.9159
+         randominit_s43_ckpt_clm_s42_L14_gate-global     real causal      2536         0.2598            669        0.8928
+            randominit_s43_ckpt_clm_s42_L14_gate-raw     real causal      2559         0.1954            471        0.9160
+         randominit_s43_ckpt_clm_s42_L18_gate-global     real causal      2526         0.3179            828        0.8837
+            randominit_s43_ckpt_clm_s42_L18_gate-raw     real causal      2559         0.2298            516        0.9120
+   randominit_s43_ckpt_mlm_s42_token_L11_gate-global     real masked      2496        -0.0443              6        1.2235
+      randominit_s43_ckpt_mlm_s42_token_L11_gate-raw     real masked      1660        -0.0973              8        1.6657
+   randominit_s43_ckpt_mlm_s42_token_L14_gate-global     real masked      2487        -0.0418             16        1.5493
+      randominit_s43_ckpt_mlm_s42_token_L14_gate-raw     real masked      1853        -0.0776             13        1.3231
+   randominit_s43_ckpt_mlm_s42_token_L18_gate-global     real masked      2488        -0.0281             10        1.4000
+      randominit_s43_ckpt_mlm_s42_token_L18_gate-raw     real masked      2038        -0.0527              5        1.2908
+         randominit_s44_ckpt_clm_s42_L11_gate-global     real causal      2536         0.2285            567        0.9033
+            randominit_s44_ckpt_clm_s42_L11_gate-raw     real causal      2553         0.1749            437        0.9234
+         randominit_s44_ckpt_clm_s42_L14_gate-global     real causal      2529         0.2566            611        0.8850
+            randominit_s44_ckpt_clm_s42_L14_gate-raw     real causal      2560         0.1889            388        0.9239
+         randominit_s44_ckpt_clm_s42_L18_gate-global     real causal      2537         0.2911            721        0.8923
+            randominit_s44_ckpt_clm_s42_L18_gate-raw     real causal      2560         0.2108            438        0.9158
+   randominit_s44_ckpt_mlm_s42_token_L11_gate-global     real masked      2488        -0.0447             13        1.6212
+      randominit_s44_ckpt_mlm_s42_token_L11_gate-raw     real masked      1674        -0.0913             18        1.4230
+   randominit_s44_ckpt_mlm_s42_token_L14_gate-global     real masked      2484        -0.0408              7        1.5792
+      randominit_s44_ckpt_mlm_s42_token_L14_gate-raw     real masked      1847        -0.0783              9        1.6904
+   randominit_s44_ckpt_mlm_s42_token_L18_gate-global     real masked      2505        -0.0280              9        1.6322
+      randominit_s44_ckpt_mlm_s42_token_L18_gate-raw     real masked      2017        -0.0569             11        1.5524
+
+       mean_d_struct          n_significant           
+tree            real shuffled          real   shuffled
+arm                                                   
+causal        0.3836   0.6838      961.4103  1596.7143
+masked        0.0503  -0.0694      216.2308    19.6667
+
+  THE PAPER TURNS ON THIS. If shuffled > real on mean_d_struct or on the
+  count of significant structural features, the failure is NOT specific to
+  our variant and the cautionary tale has an audience. If not, our anchor
+  and gate are what break, and the paper narrows to a claim about them.
+
+=== STAGE 15 — matched untrained baseline ===
+  L_struct ckpt_mlm_s42_token     L11  trained +0.01781   untrained +0.01773
+  L_struct ckpt_mlm_s42_token     L14  trained +0.01598   untrained +0.01794
+  L_struct ckpt_mlm_s42_token     L18  trained +0.01368   untrained +0.01819
+  L_struct ckpt_clm_s42           L11  trained +0.00172   untrained +0.01790
+  L_struct ckpt_clm_s42           L14  trained +0.00114   untrained +0.01887
+  L_struct ckpt_clm_s42           L18  trained +0.00462   untrained +0.01912
+
+  probe AUROC (0.5 = chance), trained vs untrained:
+    probe_helix_auroc        trained 0.646-0.899   untrained 0.648-0.674
+    probe_strand_auroc       trained 0.669-0.889   untrained 0.669-0.700
+    probe_burial_auroc       trained 0.696-0.799   untrained 0.698-0.707
+
+  concept-F1, best feature per concept, SAME aggregation both sides:
+                     trained  untrained    gap
+concept                                       
+fold:c.66              1.000      0.000  1.000
+superfamily:c.66.1     1.000      0.000  1.000
+superfamily:a.118.8    1.000      0.050  0.950
+superfamily:d.58.7     0.889      0.000  0.889
+superfamily:c.23.1     1.000      0.223  0.777
+family:b.1.1.0         0.764      0.000  0.764
+fold:c.37              0.914      0.163  0.752
+superfamily:c.37.1     0.914      0.163  0.752
+superfamily:a.104.1    1.000      0.252  0.748
+fold:a.104             1.000      0.252  0.748
+fold:c.69              1.000      0.268  0.732
+superfamily:c.69.1     1.000      0.268  0.732
+family:c.69.1.0        0.889      0.181  0.707
+family:c.37.1.0        0.701      0.000  0.701
+family:a.104.1.0       0.941      0.247  0.694
+family:c.23.1.0        0.889      0.229  0.660
+fold:a.39              0.828      0.201  0.627
+fold:c.108             0.727      0.105  0.622
+superfamily:c.108.1    0.727      0.105  0.622
+superfamily:b.1.1      0.917      0.312  0.604
+superfamily:a.4.5      0.737      0.134  0.603
+superfamily:a.39.1     0.828      0.235  0.592
+fold:c.2               0.857      0.266  0.591
+superfamily:c.2.1      0.857      0.266  0.591
+family:c.2.1.0         0.660      0.108  0.552
+family:c.47.1.0        0.545      0.067  0.479
+fold:a.118             0.606      0.133  0.473
+family:a.4.5.0         0.500      0.033  0.467
+fold:c.47              0.522      0.100  0.422
+superfamily:c.47.1     0.522      0.100  0.422
+superfamily:a.4.1      0.615      0.200  0.415
+fold:c.67              0.471      0.064  0.406
+superfamily:c.67.1     0.471      0.064  0.406
+fold:c.23              0.588      0.186  0.402
+fold:b.1               0.757      0.363  0.393
+superfamily:c.1.2      0.400      0.017  0.383
+family:c.67.1.0        0.400      0.052  0.348
+fold:a.4               0.611      0.273  0.338
+class:e                0.468      0.133  0.335
+fold:d.58              0.410      0.095  0.315
+fold:c.1               0.541      0.231  0.310
+superfamily:a.25.1     0.308      0.000  0.308
+fold:d.110             0.571      0.267  0.305
+superfamily:c.93.1     0.308      0.009  0.299
+fold:c.93              0.308      0.009  0.299
+superfamily:b.29.1     0.298      0.022  0.276
+fold:b.29              0.298      0.022  0.276
+superfamily:c.1.8      0.448      0.180  0.268
+family:c.94.1.1        0.267      0.000  0.267
+fold:a.102             0.444      0.183  0.261
+class:d                0.608      0.352  0.256
+family:a.45.1.0        0.250      0.000  0.250
+superfamily:d.108.1    0.250      0.000  0.250
+fold:d.17              0.250      0.000  0.250
+fold:d.108             0.250      0.000  0.250
+class:f                0.913      0.687  0.226
+superfamily:a.45.1     0.235      0.014  0.222
+fold:a.45              0.235      0.014  0.222
+family:c.94.1.0        0.381      0.178  0.203
+fold:d.15              0.200      0.000  0.200
+fold:a.25              0.267      0.077  0.190
+superfamily:c.94.1     0.444      0.269  0.175
+fold:c.94              0.444      0.269  0.175
+fold:b.34              0.222      0.049  0.173
+superfamily:a.1.1      0.200      0.027  0.173
+fold:a.1               0.200      0.027  0.173
+fold:a.29              0.182      0.013  0.168
+class:a                0.713      0.591  0.122
+rsa_buried             0.661      0.563  0.098
+class:b                0.610      0.514  0.097
+class:c                0.810      0.723  0.087
+fold:a.60              0.200      0.143  0.057
+fold:b.40              0.167      0.111  0.056
+rsa_exposed            0.577      0.537  0.041
+ss_helix               0.727      0.686  0.041
+ss_strand              0.524      0.485  0.039
+ss_coil                0.334      0.297  0.037
+fold:a.24              0.222      0.189  0.033
+fold:c.55              0.154      0.133  0.021
+ss_turn                0.434      0.417  0.017
+
+  Concepts with a small gap are NOT evidence of learned interpretable
+  features. This is the comparison the ESM-2 baseline could not make.
+
+=== STAGE 16 — shuffled control at three seeds ===
+ seed    arm  layer    real  shuffled    ratio
+   42 masked     11 0.01781   0.03340  1.87498
+   42 masked     14 0.01598   0.02762  1.72806
+   42 masked     18 0.01368   0.02651  1.93784
+   42 causal     11 0.00172   0.04546 26.44245
+   42 causal     14 0.00114   0.05288 46.28747
+   42 causal     18 0.00462   0.05667 12.25596
+   43 masked     11 0.01844   0.02966  1.60864
+   43 masked     14 0.01612   0.02422  1.50238
+   43 masked     18 0.01497   0.02145  1.43237
+   43 causal     11 0.00189   0.05197 27.47643
+   43 causal     14 0.00240   0.05463 22.77891
+   43 causal     18 0.00481   0.04959 10.30349
+   44 masked     11 0.02017   0.02635  1.30624
+   44 masked     14 0.01790   0.02726  1.52301
+   44 masked     18 0.01387   0.02924  2.10885
+   44 causal     11 0.00124   0.05185 41.75540
+   44 causal     14 0.00079   0.05560 70.42301
+   44 causal     18 0.00297   0.04947 16.66629
+
+  ratio across seeds:
+                 mean      std  count
+arm    layer                         
+causal 11     31.8914   8.5581      3
+       14     46.4965  23.8227      3
+       18     13.0752   3.2596      3
+masked 11      1.5966   0.2846      3
+       14      1.5845   0.1248      3
+       18      1.8264   0.3517      3
+
+  cells with ratio > 1: 18 / 18
+
+  3 seeds present -- the invalidity result is no longer n=1 per arm.

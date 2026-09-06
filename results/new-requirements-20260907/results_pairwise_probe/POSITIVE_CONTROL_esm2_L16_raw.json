@@ -1,0 +1,31 @@
+{
+  "layer_dir": "outputs_layerwise/esm2/layer_16",
+  "mode": "raw",
+  "dim": 1280,
+  "cutoff": 8.0,
+  "seq_gap": 12,
+  "separation_matched": {
+    "auroc": 0.6442791694735645,
+    "ap": 0.6476331176114524,
+    "n_train": 32085,
+    "n_test": 7911
+  },
+  "separation_matched_shuffled_labels": {
+    "auroc": 0.4884288061329952,
+    "ap": 0.48381371015614316,
+    "n_train": 32085,
+    "n_test": 7911
+  },
+  "unmatched": {
+    "auroc": 0.6887980330080823,
+    "ap": 0.6958847959981831,
+    "n_train": 31846,
+    "n_test": 8154
+  },
+  "unmatched_shuffled_labels": {
+    "auroc": 0.5033404045356697,
+    "ap": 0.5088869973151887,
+    "n_train": 31846,
+    "n_test": 8154
+  }
+}

@@ -1,0 +1,45 @@
+  [done] ckpt_mlm_s42_token L11
+  [done] ckpt_mlm_s42_token L14
+  [done] ckpt_mlm_s42_token L18
+  [done] ckpt_clm_s42 L11
+  [done] ckpt_clm_s42 L14
+  [done] ckpt_clm_s42 L18
+  [done] ckpt_mlm_s43_token L11
+  [done] ckpt_mlm_s43_token L14
+  [done] ckpt_mlm_s43_token L18
+  [done] ckpt_clm_s43 L11
+  [done] ckpt_clm_s43 L14
+  [done] ckpt_clm_s43 L18
+  [done] ckpt_mlm_s44_token L11
+  [done] ckpt_mlm_s44_token L14
+  [done] ckpt_mlm_s44_token L18
+  [done] ckpt_clm_s44 L11
+  [done] ckpt_clm_s44 L14
+  [done] ckpt_clm_s44 L18
+
+  cells at n-shuffles=25: 18 done, 0 skipped for a missing Z
+
+  cell                              n=5       n=25   abs diff
+  ckpt_mlm_s42_token L11        0.01781    0.01792    0.00011
+  ckpt_mlm_s42_token L14        0.01598    0.01607    0.00009
+  ckpt_mlm_s42_token L18        0.01368    0.01360    0.00008
+  ckpt_clm_s42 L11              0.00172    0.00162    0.00010
+  ckpt_clm_s42 L14              0.00114    0.00113    0.00001
+  ckpt_clm_s42 L18              0.00462    0.00456    0.00007
+  ckpt_mlm_s43_token L11        0.01844    0.01843    0.00001
+  ckpt_mlm_s43_token L14        0.01612    0.01612    0.00000
+  ckpt_mlm_s43_token L18        0.01497    0.01496    0.00002
+  ckpt_clm_s43 L11              0.00189    0.00184    0.00005
+  ckpt_clm_s43 L14              0.00240    0.00226    0.00014
+  ckpt_clm_s43 L18              0.00481    0.00472    0.00010
+  ckpt_mlm_s44_token L11        0.02017    0.02040    0.00023
+  ckpt_mlm_s44_token L14        0.01790    0.01800    0.00010
+  ckpt_mlm_s44_token L18        0.01387    0.01384    0.00003
+  ckpt_clm_s44 L11              0.00124    0.00120    0.00004
+  ckpt_clm_s44 L14              0.00079    0.00071    0.00008
+  ckpt_clm_s44 L18              0.00297    0.00295    0.00002
+
+  max |diff| = 0.00023   median |diff| = 0.00007  over 18 cells
+  Read it as: a small max means the 5-permutation null was already large enough
+  and the published numbers stand. A large one means the null has to grow and
+  every L_struct number moves with it.
