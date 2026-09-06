@@ -82,8 +82,9 @@ blocks a short one. All are resumable and skip finished work. Full detail in
 ```bash
 git pull
 
-# does this directory still exist? if not, say so — it decides whether Appendix C is 15 min or 50 GPU-h
-ls ~/own_sae_data/uniref50_pilot_shuf_500tpp
+# Two paths to check FIRST. Both take a second and both change what is worth running.
+ls ~/own_sae_data/uniref50_pilot_shuf_500tpp            # exists -> Appendix C is 15 min; missing -> 50 GPU-h
+ls outputs_layerwise/esm2/layer_16/raw_embeddings.npy   # missing -> STAGE=11 has no positive control
 
 STAGE=13 bash RUN_MUSTRUNS.sh                 # ~2 h CPU   continuous separation sweep
 STAGE=1  bash run_ctrl_mechanism.sh           # ~2 h CPU   directional contact split
