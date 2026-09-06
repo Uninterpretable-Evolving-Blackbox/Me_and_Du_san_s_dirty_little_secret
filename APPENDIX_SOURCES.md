@@ -18,6 +18,13 @@ Everything below lives in one of two batches. Neither is in git: the repo
 |---|---|---|
 | **2026-09-02** | `presubmission_results_20260902.zip`, WeChat | depth grid (9 depths), tier-1 denominators, block shuffle, block-18 probes, d_struct at 3 seeds, d_struct untrained |
 | **2026-09-03** | **PR #3** on GitHub, unmerged | native fold-disjoint cells, the BH batch, and all fifteen one-copy scripts |
+| **2026-07-16** | **PR #1** on GitHub, unmerged | `ctrl_results.tgz` — 27 concept-F1 cells (3 arms x 9 depths, seed 42) |
+| **2026-08-14** | **PR #2** on GitHub, unmerged | `interplm_results_20260814.tgz` — the full 81-cell InterPLM grid |
+
+**PRs #1 and #2 have been open since July and August.** Their contents are on no
+branch. Fetch them with
+`git fetch origin '+refs/pull/*/head:refs/remotes/origin/pr/*'` and
+`git archive origin/pr/1 | tar -x -C <dir>`.
 
 To get a single tree with everything, unpack both into one directory and run
 
@@ -64,7 +71,7 @@ Reproducibility statement already states most of it; A and B are the exhaustive
 version. `run_queue_0804.sh`, the actual launcher, arrived in PR #3 — use it, it
 is authoritative over any reconstruction.
 
-### C — scaling-arm values · **MISSING**
+### C — scaling-arm values · **MISSING** (searched PRs #1 and #2; not there)
 §4.1 quotes −4% to +23% order-destroyed and up to 116% native at 500 tok/param.
 `run_500tpp.sh`, `run_ppl500.sh` and `run_shuf500_eval.sh` came in PR #3, but the
 **outputs did not**. n=1 (seed 42). Ask for them, or drop the appendix and keep
@@ -76,7 +83,7 @@ the range in the main text.
 each with `probe_{helix,strand,burial}_{f1,auroc}` and `contact_p_at_L5`.
 Blocks 7/11/14 — the ones Table 3 reports — are **not delivered**.
 
-### F — the 48-row cutoff sweep · **MISSING**
+### F — the 48-row cutoff sweep · **MISSING** (searched PRs #1 and #2; not there)
 `experiment_contact_def_sweep.py` is committed; no output is in either batch.
 Regenerate with `RUN_MUSTRUNS.sh` stage 9 or ask for `results_nshuffle_sensitivity/`.
 This is also Figure 2's data, which is why Figure 2 could not be drawn.
@@ -118,15 +125,55 @@ either.
 
 Plus the 20 single-residue indicators and one all-ones column = 29.
 
-### J — concept-F1 decomposition and Table 5 per-cell · **PARTIAL**
-Concept set reproduces exactly from committed inputs: 80 labels = 74 SCOPe
-taxonomy + 6 residue-level, at `experiment_concept_f1.py --min-domains 10` over
-`cache/scope_40.fa` and `cache/residue_features.csv`. The **per-depth split** and
-the 0.039–0.058 test-F1 range are still v1 numbers with no delivered source.
-Table 5's other rows: d_struct cells are in `results_interplm_metric/`;
-single-latent F1, co-activation ρ and SAEBench are **not delivered**.
+### J — concept-F1 decomposition and Table 5 per-cell · **IN HAND, and it contradicts the paper**
 
-### K — the directional split · **method in hand, number is not**
+Two sources, both in unmerged PRs.
+
+**PR #1** — `results_concept_f1/<arm>/layer_<L>/concept_f1.csv`, 27 cells (masked
+token, masked pred, causal; nine depths; seed 42). Columns: `concept`,
+`concept_kind`, `feature_idx`, `threshold`, `val_f1`, `test_f1`, `n_domains`.
+23 of 27 carry the full 80-label set (74 SCOPe taxonomy + 6 residue-level,
+reproducing `experiment_concept_f1.py --min-domains 10` exactly). The other four —
+both arms at blocks 0 and 29 — degenerate to 11 labels and must be excluded, not
+averaged in.
+
+Recomputed 2026-09-04 on the 23 full cells, mean test-F1:
+
+| block | taxonomy MLM | CLM | residue MLM | CLM | residue winner |
+|---|---:|---:|---:|---:|---|
+| 4 | 0.0985 | 0.0876 | 0.5191 | 0.5025 | masked |
+| 7 | 0.0841 | 0.0569 | 0.5185 | 0.4711 | masked |
+| 11 | 0.1014 | 0.1103 | 0.5097 | 0.4347 | masked |
+| 14 | 0.0803 | 0.1305 | 0.5017 | 0.4075 | masked |
+| 18 | 0.0890 | 0.2255 | 0.4901 | 0.3859 | masked |
+| 22 | 0.1273 | 0.2254 | 0.4933 | 0.3699 | masked |
+| 26 | 0.1431 | 0.2661 | 0.4871 | 0.3678 | masked |
+
+Blocks 0 and 29 excluded (degenerate).
+
+**This disagrees with §4.6 twice.** The section says taxonomy labels reach a mean
+test-F1 of at most 0.058; the range here is **0.057-0.266**. It says the residue
+labels favour the masked arm "at four depths (50-88%)"; masked wins at **all seven
+usable depths**. The qualitative story survives — residue-level favours masked,
+taxonomy favours causal at the deeper blocks — but every number in that paragraph
+needs replacing.
+
+**PR #2** — the 81-cell InterPLM grid: `results/concept_f1.txt` (per-cell "Average
+best F1 per concept in test set", the source of §4.6's 0.009-0.062 range),
+`results/sae_quality.txt`, and 81 `results/floor_vs_sae_*.csv` giving the
+amino-acid floor against the SAE per concept. Untrained cells are present too, so
+Table 5's concept-F1 random-init column is sourced.
+
+**Table 5's "4 of 12 concepts" matches nothing in either source.** The grid scores
+**358** Swiss-Prot concepts per cell, of which 196-316 are comparable; the AA floor
+beats the SAE on 4-79 of them, median 17. No cell has 12 comparable concepts. The
+"12" is not the family-level slice of the local reimplementation either. Find the
+run that produced it or restate the cell from the data above.
+
+Still absent: single-latent F1, co-activation rho and SAEBench per-cell values.
+Mark those rows "not delivered".
+
+### K — the directional split · **method in hand, number is not** (searched PRs #1 and #2; not there)
 `cpu_stage.py` lines 586-664 documents the up/downstream contact split and warns
 that within-model up-vs-down is degree-confounded — report the interaction, not
 the raw halves. `analyze_directional.py` computes it. The −0.1422 has **no
@@ -180,6 +227,9 @@ the current `paper/main.pdf` on any of these.
 | §5 "blocks 11, 14 and 18" | nine depths |
 | Table 5 "no verdict — not run" | trained +0.5863 vs untrained +0.2630 (causal, global gate) |
 | §4.6 "a single seed" | three seeds |
+| §4.6 taxonomy "no label exceeds a mean test-F1 of 0.058" | range is **0.057-0.266** |
+| §4.6 residue labels favour masked "at four depths" | **all seven** usable depths |
+| Table 5 "4 of 12 concepts" | **no source**; the grid uses 358 concepts, floor beats SAE on 4-79 |
 
 The BH batch also produced an **omnibus** the paper does not report: pooled across
 depths, mean d = +0.2413, 95% CI [+0.1927, +0.2913]; on the held-out half,
