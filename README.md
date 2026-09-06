@@ -44,11 +44,15 @@ Writing the appendices? [APPENDIX_SOURCES.md](APPENDIX_SOURCES.md) maps each of 
 appendices to the file its numbers come from, says which are in hand and which are still missing,
 and lists the nine claims the delivered data has moved since the current PDF was built.
 
-Both zero-compute asks were delivered in PR #3 on 2026-09-03: the native
-`outputs_ctrl_folddisj` cells and all fifteen one-copy scripts. Nothing outstanding there.
+Both zero-compute asks were delivered in PR #3 on 2026-09-03 — thank you — but **PR #3 is not
+merged, so none of it is in the repo.** A fresh clone gets none of the fifteen one-copy scripts
+and none of the native `outputs_ctrl_folddisj` cells. Until it is merged, the two paper numbers
+those scripts produce (Table 3's per-protein column, Table 5's co-activation row) are still not
+reproducible by anyone but you.
 
-**PRs #1, #2 and #3 are all still unmerged**, and hold result archives that exist on no branch.
-Fetch them with `git fetch origin '+refs/pull/*/head:refs/remotes/origin/pr/*'`.
+**PRs #1, #2 and #3 are all unmerged**, and between them hold every result archive this project
+has produced. They exist on no branch. Fetch them with
+`git fetch origin '+refs/pull/*/head:refs/remotes/origin/pr/*'`.
 
 ---
 
@@ -94,12 +98,17 @@ Then check the batch before reading anything off it:
 python verify_paper_claims.py --results <dir with the unpacked batch or its .tgz files>
 ```
 
-**Why this order, and the one dependency that matters.** `STAGE=11` runs its SAE arm happily
-without `STAGE=10`, prints one `bad` line about the missing raw activations, and carries on. The
-raw arm is the half that answers the reviewer, so run 10 first or you get half the experiment and
-a green tick. `STAGE=10` is worth its GPU hour on its own: it also produces the no-autoencoder
-L_struct behind §3's "No dictionary at all" check and the perplexities in §2.3, neither of which
-has ever been delivered.
+**Why this order, and the dependencies that matter.** `STAGE=11` needs three inputs and will run
+without two of them. Missing `Z.npy` or the raw activations from `STAGE=10` each register a
+failure, so the script does exit non-zero and lists them at the end — it is not a silent pass —
+but it still spends the hour and returns only its SAE arm, and the raw arm is the half that
+answers the reviewer. Its third input is the ESM-2 positive control at
+`outputs_layerwise/esm2/layer_16/raw_embeddings.npy`; without that one the script's own words are
+that "results will be uninterpretable". **Check that path exists before running 11.**
+
+`STAGE=10` is worth its GPU hour on its own: it also produces the no-autoencoder L_struct behind
+§3's "No dictionary at all" check and the perplexities in §2.3, neither of which has ever been
+delivered.
 
 **What each closes.** 13 → Appendix F and Figure 2, the only figure that cannot currently be
 drawn. 1 → Appendix K and the −0.1422 interaction, which has no source anywhere. 10 → two

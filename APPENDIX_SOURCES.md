@@ -21,8 +21,10 @@ Everything below lives in one of two batches. Neither is in git: the repo
 | **2026-07-16** | **PR #1** on GitHub, unmerged | `ctrl_results.tgz` — 27 concept-F1 cells (3 arms x 9 depths, seed 42) |
 | **2026-08-14** | **PR #2** on GitHub, unmerged | `interplm_results_20260814.tgz` — the full 81-cell InterPLM grid |
 
-**PRs #1 and #2 have been open since July and August.** Their contents are on no
-branch. Fetch them with
+**All three PRs are unmerged and their contents are on no branch** — including PR #3,
+so the fifteen one-copy scripts and the native fold-disjoint cells are NOT in a
+fresh clone. Every "in hand" below means "in an unmerged PR", not "in the repo".
+Merging is what makes them reproducible by anyone else. Fetch them with
 `git fetch origin '+refs/pull/*/head:refs/remotes/origin/pr/*'` and
 `git archive origin/pr/1 | tar -x -C <dir>`.
 
