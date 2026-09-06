@@ -1,0 +1,31 @@
+{
+  "layer_dir": "outputs_ctrl/ckpt_mlm_s42_token/layer_14",
+  "mode": "raw",
+  "dim": 320,
+  "cutoff": 8.0,
+  "seq_gap": 12,
+  "separation_matched": {
+    "auroc": 0.5976295508494834,
+    "ap": 0.5931008822251267,
+    "n_train": 32085,
+    "n_test": 7911
+  },
+  "separation_matched_shuffled_labels": {
+    "auroc": 0.5027199016875429,
+    "ap": 0.4938824069084069,
+    "n_train": 32085,
+    "n_test": 7911
+  },
+  "unmatched": {
+    "auroc": 0.6098111717358436,
+    "ap": 0.5974781783662706,
+    "n_train": 31846,
+    "n_test": 8154
+  },
+  "unmatched_shuffled_labels": {
+    "auroc": 0.5101150162939299,
+    "ap": 0.5149070949382124,
+    "n_train": 31846,
+    "n_test": 8154
+  }
+}

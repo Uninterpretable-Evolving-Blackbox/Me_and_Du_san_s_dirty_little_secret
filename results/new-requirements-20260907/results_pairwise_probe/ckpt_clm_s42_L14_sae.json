@@ -1,0 +1,31 @@
+{
+  "layer_dir": "outputs_ctrl/ckpt_clm_s42/layer_14",
+  "mode": "sae",
+  "dim": 2560,
+  "cutoff": 8.0,
+  "seq_gap": 12,
+  "separation_matched": {
+    "auroc": 0.5732870040738899,
+    "ap": 0.5601336045147023,
+    "n_train": 32085,
+    "n_test": 7911
+  },
+  "separation_matched_shuffled_labels": {
+    "auroc": 0.4998005633454161,
+    "ap": 0.4960819141305993,
+    "n_train": 32085,
+    "n_test": 7911
+  },
+  "unmatched": {
+    "auroc": 0.5820832828728844,
+    "ap": 0.5715347161762516,
+    "n_train": 31846,
+    "n_test": 8154
+  },
+  "unmatched_shuffled_labels": {
+    "auroc": 0.49856880204462173,
+    "ap": 0.5061351816336115,
+    "n_train": 31846,
+    "n_test": 8154
+  }
+}

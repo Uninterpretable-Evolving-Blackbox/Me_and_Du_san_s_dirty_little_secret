@@ -1,0 +1,185 @@
+bash: warning: setlocale: LC_ALL: cannot change locale (en_US.UTF-8): No such file or directory
+### syntax
+  [PASS] py_compile rescore_denominator.py
+  [PASS] py_compile analyze_top1_agreement.py
+  [PASS] py_compile prep_controlled_corpus.py
+  [PASS] py_compile verify_paper_claims.py
+bash: warning: setlocale: LC_ALL: cannot change locale (en_US.UTF-8): No such file or directory
+  [PASS] bash -n RUN_TIER1.sh
+bash: warning: setlocale: LC_ALL: cannot change locale (en_US.UTF-8): No such file or directory
+  [PASS] bash -n RUN_BLOCKSHUFFLE.sh
+
+### numerics (against the real cpu_stage functions)
+====================================================================
+test_rescore_denominator.py
+====================================================================
+  [PASS] fixture exercises deg==0 branch  8 isolated residues
+  [PASS] permutation draw is within-protein
+  [PASS] sd reproduces cpu_stage seq_delta exactly  max|d| = 0.000e+00
+  [PASS] sd reproduces cpu_stage struct_delta exactly  max|d| = 0.000e+00
+  [PASS] fixed matches an independent numerator computation  max|d| = 0.000e+00
+  [PASS] struct_delta_sd == struct_delta_fixed / (SD + eps)  max|d| = 2.980e-08
+  [PASS] dead feature scores exactly 0 in every mode
+  [PASS] n_active < 5 feature is zeroed  n_active=3
+  [PASS] constant feature flagged iqr_degenerate
+  [PASS] no NaN or inf anywhere
+  [PASS] rank transform gives tied zeros one shared rank  zeros -> [0.25 0.25 0.25]
+  [PASS] rank transform is monotone and spans [0, 1]  [0.25 0.25 0.25 0.75 1.  ]
+  [PASS] rank transform preserves shape and dtype
+  [PASS] rank transform matches a per-column reference
+  [PASS] rank mode differs from sd mode
+  [PASS] rank denominator is positive for live features
+  [PASS] rerun is bit-identical
+  [PASS] chunk_size does not change the result
+  [PASS] fixture exercises deg==0 branch  6 isolated residues
+  [PASS] second fixture: sd still exact
+--------------------------------------------------------------------
+All checks passed.
+
+### block shuffle (second destruction procedure)
+====================================================================
+test_block_shuffle.py
+====================================================================
+  [PASS] default path still skips all permutation
+  [PASS] residue-level shuffle still reached when --block-shuffle is absent
+  [PASS] block mode writes to its own out-dir
+  [PASS] real corpus dir is still unreachable from a shuffled run
+  [PASS] length preserved for every k and length  4 lengths x 4 block sizes
+  [PASS] composition preserved for every k and length
+  [PASS] local windows survive intact  skipped (ragged tail)
+  [PASS] every output block is an input block
+  [PASS] long-range order is destroyed
+  [PASS] block shuffle differs from residue shuffle
+  [PASS] ragged tail preserves length and composition
+  [PASS] sequence shorter than one block is returned unchanged
+  [PASS] deterministic given the seed
+  [PASS] '--block-shuffle 1' is rejected  rc=1
+  [PASS] '--block-shuffle -3' is rejected  rc=1
+  [PASS] --help documents the new flag
+--------------------------------------------------------------------
+All checks passed.
+
+### block-shuffle driver, end to end against stubs
+bash: warning: setlocale: LC_ALL: cannot change locale (en_US.UTF-8): No such file or directory
+== RUN_BLOCKSHUFFLE.sh ==
+  [PASS] refuses to overwrite the real corpus
+  [PASS]   and says why
+  [PASS] refuses to collide with the real checkpoints
+  [PASS] refuses to overwrite the residue-shuffled corpus
+  [PASS] full run exits 0
+  [PASS] builds the corpus
+  [PASS] trains both arms
+  [PASS] scores 6 cells
+  [PASS]   summary carries a computed mean
+  [PASS]   summary says what to compare against
+  [PASS] second run exits 0
+  [PASS] resume retrains nothing
+  [PASS] resume rescores nothing
+  [PASS] BLOCK=8 uses its own corpus dir
+  [PASS] BLOCK=8 uses its own output dir
+  [PASS] unknown ONLY exits non-zero
+  [PASS]   and says nothing ran
+--
+All checks passed.
+
+### paper-claim verifier
+====================================================================
+test_verify_paper_claims.py
+====================================================================
+  [PASS] a clean delivery exits 0  rc=0
+  [PASS]   and reproduces Table 2
+  [PASS]   and reports 18/18
+  [PASS]   and reports Delta
+  [PASS] a wrong Table 2 value exits 1  rc=1
+  [PASS]   and is named in the CHANGED list
+  [PASS]   showing both numbers
+  [PASS] a reversed corpus control exits 1  rc=1
+  [PASS]   and reports 0/18 rather than 18/18
+  [PASS] a missing tree is reported MISSING
+  [PASS]   and is not silently passed
+  [PASS] cells that disagree across archives are caught
+  [PASS] a directory of .tgz files is unpacked  rc=0
+  [PASS]   and verifies from them
+  [PASS] an empty directory does not report success
+  [PASS] a missing directory exits 2  rc=2
+  [PASS] absent denominator files report MISSING
+--------------------------------------------------------------------
+All checks passed.
+
+### top1_share agreement
+bash: warning: setlocale: LC_ALL: cannot change locale (en_US.UTF-8): No such file or directory
+== analyze_top1_agreement.py ==
+  [PASS] agreement case exits 0
+  [PASS] agreement case says AGREE
+  [PASS] agreement case keeps six checks
+  [PASS] opposite-sign case exits 0
+  [PASS] opposite-sign case says DISAGREE
+  [PASS] opposite-sign case names the reason
+  [PASS] opposite-sign case tells you to drop to five
+  [PASS] large-|rho| case says DISAGREE
+  [PASS] null-band signs do not trigger a false alarm
+  [PASS] missing input exits 2
+  [PASS] missing input prints the generating command
+  [PASS] malformed input exits 2
+  [PASS] empty input exits 2 (not a silent pass)
+  [PASS] per-feature direct correlation is computed
+  [PASS] output csv has one row per cell
+--
+All checks passed.
+
+### driver, end to end against stubs
+bash: warning: setlocale: LC_ALL: cannot change locale (en_US.UTF-8): No such file or directory
+== RUN_TIER1.sh ==
+  [PASS] preflight fails on a missing script
+  [PASS]   and names it
+  [PASS]   and runs nothing
+  [PASS] preflight fails when cpu_stage will not import
+  [PASS]   and shows the import error
+  [PASS] preflight fails when no cell has Z.npy
+  [PASS]   and gives the rebuild command
+  [PASS] stage 1 exits 0
+  [PASS]   builds the selectivity csv
+  [PASS]   using the controlled arms, not esm2/rita
+  [PASS]   and surfaces the verdict
+  [PASS] stage 1 reuses an existing csv
+  [PASS]   and says so
+  [PASS] stage 1 fails when no cell can supply activations
+  [PASS]   and gives the rebuild command
+  [PASS] stage 2 exits 0
+  [PASS] stage 2 covers every cell
+  [PASS]   and packaging copies them all
+  [PASS]   and reports the self-check
+  [PASS] second run exits 0
+  [PASS] resume skips all 12 cells
+  [PASS] resume re-runs none
+  [PASS] a failed cell exits non-zero
+  [PASS]   and names the cell
+  [PASS]   and still says to send the archive
+  [PASS]   and the archive exists
+  [PASS]   and RESULT_SUMMARY records the failure
+  [PASS] a stage that produces nothing exits non-zero
+  [PASS]   and says so explicitly
+  [PASS] stage 3 exits 0
+  [PASS] stage 3 covers every gate x cell
+  [PASS]   both gate modes present
+  [PASS] stage 4 exits 0
+  [PASS] stage 4 embeds the randomised models
+  [PASS] stage 4 scores them at both gates
+  [PASS] summary has the denominator table header
+  [PASS] summary has one row per cell
+  [PASS] summary carries a real computed mean
+  [PASS] summary records the git revision
+  [PASS] checksums written
+  [PASS] stage 5 exits 0
+  [PASS]   builds the bootstrap with the ctrl preset
+  [PASS]   and reports the BH count
+  [PASS]   reuses an existing bootstrap csv
+  [PASS] delegated 100-perm command shown
+  [PASS] delegated fold-disjoint command shown
+  [PASS] excluded items are costed
+  [PASS] an unknown ONLY= exits non-zero
+  [PASS]   and says nothing ran
+--
+All checks passed.
+
+=== ALL SUITES PASSED ===

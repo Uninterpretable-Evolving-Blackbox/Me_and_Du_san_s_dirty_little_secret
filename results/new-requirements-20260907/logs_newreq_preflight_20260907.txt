@@ -1,0 +1,25 @@
+bash: warning: setlocale: LC_ALL: cannot change locale (en_US.UTF-8): No such file or directory
+
+== environment ==
+  PASS  interpreter exists: /home/ronnie/Me_and_Du_san_s_dirty_little_secret/.venv/bin/python
+  PASS  python 3.12
+  PASS  numpy/pandas/scipy/sklearn import
+  PASS  CUDA visible
+  SKIP  could not read free disk
+  SKIP  pyflakes not installed ('/home/ronnie/Me_and_Du_san_s_dirty_little_secret/.venv/bin/python -m pip install pyflakes' to enable the undefined-name check)
+  PASS  no PY quoting regression in RUN_MUSTRUNS.sh
+
+== inputs for jobs 1-2 (no-model baseline, extra metrics) ==
+  PASS  cache/scope_40.fa present
+  PASS  cache/residue_features.csv present
+  PASS  Z.npy present in 60 layer dir(s)
+  PASS  synthetic layer invariants (29 features, none dead, one all-ones column)
+
+== checkpoints for job 3 (InterPLM attack) ==
+  PASS  CKPT_ROOT and CKPT_ROOT_SHUF are different paths
+  PASS  all 8 checkpoints present
+  PASS  8 checkpoints, all distinct by sha256
+  SKIP  could not read tokens_seen (got '?')
+
+== 12 passed, 0 failed, 3 skipped ==
+OK to proceed.
