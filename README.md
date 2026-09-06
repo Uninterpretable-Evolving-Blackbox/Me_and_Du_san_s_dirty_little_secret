@@ -44,16 +44,11 @@ Writing the appendices? [APPENDIX_SOURCES.md](APPENDIX_SOURCES.md) maps each of 
 appendices to the file its numbers come from, says which are in hand and which are still missing,
 and lists the nine claims the delivered data has moved since the current PDF was built.
 
-Two things worth more than any compute here, and neither needs the GPU:
+Both zero-compute asks were delivered in PR #3 on 2026-09-03: the native
+`outputs_ctrl_folddisj` cells and all fifteen one-copy scripts. Nothing outstanding there.
 
-1. Send `outputs_ctrl_folddisj/*/*/struct_seq_metrics.csv` — the **native** fold-disjoint
-   cells. They already exist on this box. Without them the fold-disjoint shuffled numbers
-   have nothing to be divided by.
-2. `git add` the untracked scripts and push. Five of them produced numbers that are in the
-   paper and exist in one copy: `experiment_interplm_metric_dsgate.py`, `patch_dsgate.py`,
-   `patch_raw_coact*.py`, `run_queue_0804.sh`, `run_500tpp.sh`. Also `label_features.py`,
-   `run_ppl500.sh`, `run_shuf500_eval.sh`, `unwrap_sae.py`, `merge_stage5.py`,
-   `extract_esm2.py`, `interplm_sae_encode.py`.
+**PRs #1, #2 and #3 are all still unmerged**, and hold result archives that exist on no branch.
+Fetch them with `git fetch origin '+refs/pull/*/head:refs/remotes/origin/pr/*'`.
 
 ---
 
@@ -76,36 +71,51 @@ these changed.
 
 ## 👉 WHAT TO RUN, IN THIS ORDER
 
-**Four runs left.** Cheapest first, so a long one never blocks a short one. All are resumable
-and skip finished work. Full detail in [START_HERE.md](START_HERE.md), job 6.
+**Five runs and one check, about eight hours, none of them training.** Cheapest first, so a long one never
+blocks a short one. All are resumable and skip finished work. Full detail in
+[START_HERE.md](START_HERE.md), job 6.
 
 ```bash
 git pull
 
-ONLY=5 bash RUN_TIER1.sh                      # ~15 min-1 h  Benjamini-Hochberg across nine depths
-STAGE=11 bash RUN_MUSTRUNS.sh                 # ~1 h  CPU    pairwise contact probes, SAE and raw
-FOLDDISJ_APPLY=1 ONLY=3 bash run_checks.sh    # ~1-3 h GPU   fold-disjoint refit, native arm
-NSHUF_HI=25 ONLY=2 bash run_checks.sh         # ~1-2 h CPU   larger permutation null
+# does this directory still exist? if not, say so — it decides whether Appendix C is 15 min or 50 GPU-h
+ls ~/own_sae_data/uniref50_pilot_shuf_500tpp
+
+STAGE=13 bash RUN_MUSTRUNS.sh                 # ~2 h CPU   continuous separation sweep
+STAGE=1  bash run_ctrl_mechanism.sh           # ~2 h CPU   directional contact split
+STAGE=10 bash RUN_MUSTRUNS.sh                 # ~1 h GPU   no-autoencoder L_struct, perplexity, raw acts
+STAGE=11 bash RUN_MUSTRUNS.sh                 # ~1 h CPU   pairwise probes  <-- MUST follow STAGE=10
+NSHUF_HI=25 ONLY=2 bash run_checks.sh         # ~1-2 h CPU larger permutation null
 ```
 
-About **4–7 hours in total.** Then check the batch before reading anything off it:
+Then check the batch before reading anything off it:
 
 ```bash
 python verify_paper_claims.py --results <dir with the unpacked batch or its .tgz files>
 ```
 
+**Why this order, and the one dependency that matters.** `STAGE=11` runs its SAE arm happily
+without `STAGE=10`, prints one `bad` line about the missing raw activations, and carries on. The
+raw arm is the half that answers the reviewer, so run 10 first or you get half the experiment and
+a green tick. `STAGE=10` is worth its GPU hour on its own: it also produces the no-autoencoder
+L_struct behind §3's "No dictionary at all" check and the perplexities in §2.3, neither of which
+has ever been delivered.
+
+**What each closes.** 13 → Appendix F and Figure 2, the only figure that cannot currently be
+drawn. 1 → Appendix K and the −0.1422 interaction, which has no source anywhere. 10 → two
+unsourced paper numbers plus the input for 11. 11 → the co-activation assumption in §2.2.
+
 **On the last line:** `NSHUF_HI=100` costs ~4–8 h against ~1–2 h at 25, because cost scales with
 the permutation count. §2.2's own sensitivity result already bounds the effect — 5 → 25 moves
 mean L_struct by +0.0073, never more than +0.0187, and changes no cell's sign — so 25 is very
-likely enough to retire the caveat. Use 100 only if there is time spare after the first three.
+likely enough. Skip it entirely if time is short; everything above it is worth more.
 
-**Two things worth more than any of the above, and neither needs the GPU:** send the native
-`outputs_ctrl_folddisj/*/*/struct_seq_metrics.csv`, and `git add` the twelve untracked scripts.
-Both are listed in the agent section at the top of this file.
+**Also still outstanding, and free:** nothing. The two zero-compute asks were both delivered in
+PR #3 on 2026-09-03 — the native fold-disjoint cells and all fifteen one-copy scripts. Thank you.
 
 ### Already done — do not re-run
 
-The 2026-09-02 batch (`presubmission_results_20260902.zip`) covered these, and
+The 2026-09-02 batch and PR #3 covered these, and
 `verify_paper_claims.py` reports 22 pass / 2 changed / 0 missing on it:
 
 | | run | result |
@@ -117,6 +127,8 @@ The 2026-09-02 batch (`presubmission_results_20260902.zip`) covered these, and
 | `ONLY=3 bash RUN_TIER1.sh` | d_struct at three seeds | causal 9/9, masked 0/9, at both gates |
 | `ONLY=4 bash RUN_TIER1.sh` | d_struct untrained baseline | passes at both gates and both arms |
 | `bash RUN_BLOCKSHUFFLE.sh` | second destruction procedure | 14/18 rise — causal 9/9, masked 5/9 |
+| `ONLY=5 bash RUN_TIER1.sh` | Benjamini–Hochberg across nine depths | **8/9** survive, not 7/9; plus an omnibus d = +0.2413 [+0.1927, +0.2913] |
+| `FOLDDISJ_APPLY=1 ONLY=3 bash run_checks.sh` | fold-disjoint refit, native arm | Δ = +0.01410, matching §2.4 exactly |
 
 ---
 

@@ -58,11 +58,18 @@ or refits a dictionary.
 ```bash
 git pull
 
-ONLY=5 bash RUN_TIER1.sh                      # ~15 min-1 h  Benjamini-Hochberg across nine depths
-STAGE=11 bash RUN_MUSTRUNS.sh                 # ~1 h  CPU    pairwise contact probes, SAE and raw
-FOLDDISJ_APPLY=1 ONLY=3 bash run_checks.sh    # ~1-3 h GPU   fold-disjoint refit, native arm
-NSHUF_HI=25 ONLY=2 bash run_checks.sh         # ~1-2 h CPU   larger permutation null
+ls ~/own_sae_data/uniref50_pilot_shuf_500tpp   # still there? decides whether Appendix C is cheap
+
+STAGE=13 bash RUN_MUSTRUNS.sh                 # ~2 h CPU   separation sweep -> Appendix F, Figure 2
+STAGE=1  bash run_ctrl_mechanism.sh           # ~2 h CPU   directional split -> Appendix K
+STAGE=10 bash RUN_MUSTRUNS.sh                 # ~1 h GPU   no-autoencoder L_struct + perplexity
+STAGE=11 bash RUN_MUSTRUNS.sh                 # ~1 h CPU   pairwise probes  <-- run AFTER STAGE=10
+NSHUF_HI=25 ONLY=2 bash run_checks.sh         # ~1-2 h CPU optional; skip if time is short
 ```
+
+`STAGE=11` will run without `STAGE=10`, print one `bad` line about missing raw activations and
+carry on with only its SAE arm — which is the half that does not answer the reviewer. Run 10
+first.
 
 Everything else in this job ran in the 2026-09-02 batch; see the "Already done" table in
 [README.md](README.md). Do not re-run those.
